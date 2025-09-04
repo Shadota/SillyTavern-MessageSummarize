@@ -917,8 +917,8 @@ function update_profile_section() {
     let profile_options = Object.keys(get_settings('profiles'));
 
     let $choose_profile_dropdown = $(`.${settings_content_class} #profile`).empty();
-    let $character = $('button#character_profile')
-    let $chat = $('button#chat_profile')
+    let $character = $(`.${settings_content_class} button#character_profile`)
+    let $chat = $(`.${settings_content_class} button#chat_profile`)
     let $character_icon = $character.find('i')
     let $chat_icon = $chat.find('i')
 
