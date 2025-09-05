@@ -905,9 +905,9 @@ function set_setting_ui_element(key, element, type) {
 function update_save_icon_highlight() {
     // If the current settings are different than the current profile, highlight the save button
     if (detect_settings_difference()) {
-        $('#save_profile').addClass('button_highlight');
+        $(`.${settings_content_class} #save_profile`).addClass('button_highlight');
     } else {
-        $('#save_profile').removeClass('button_highlight');
+        $(`.${settings_content_class} #save_profile`).removeClass('button_highlight');
     }
 }
 function update_profile_section() {
@@ -1305,20 +1305,22 @@ async function delete_profile() {
     toast(`Deleted Configuration Profile: \"${profile}\"`, "success");
 
     // remove any references to this profile connected to characters or chats
+    // TODO currently can't remove references from chats since that now uses chat metadata
     let character_profiles = get_settings('character_profiles')
-    let chat_profiles = get_settings('chat_profiles')
     for (let [id, name] of Object.entries(character_profiles)) {
         if (name === profile) {
             delete character_profiles[id]
         }
     }
-    for (let [id, name] of Object.entries(chat_profiles)) {
-        if (name === profile) {
-            delete chat_profiles[id]
-        }
-    }
     set_settings('character_profiles', character_profiles)
-    set_settings('chat_profiles', chat_profiles)
+
+    // let chat_profiles = get_settings('chat_profiles')
+    // for (let [id, name] of Object.entries(chat_profiles)) {
+    //     if (name === profile) {
+    //         delete chat_profiles[id]
+    //     }
+    // }
+    // set_settings('chat_profiles', chat_profiles)
 
     auto_load_profile()
 }
@@ -1351,7 +1353,10 @@ function get_character_profile(key) {
         key = get_current_character_identifier();
     }
     let character_profiles = get_settings('character_profiles');
-    return character_profiles[key]
+    let profile = character_profiles[key];
+    let profiles = get_settings('profiles');
+    if (!profile || profiles[profile] === undefined) return;  // profile doesn't exist
+    return profile
 }
 function set_character_profile(key, profile=null) {
     // Set the profile for a given character (or unset it if no profile provided)
@@ -1370,7 +1375,10 @@ function set_character_profile(key, profile=null) {
 }
 function get_chat_profile() {
     // Get the profile for the current chat
-    return get_chat_metadata('profile');
+    let profile = get_chat_metadata('profile');
+    let profiles = get_settings('profiles');
+    if (profiles[profile] === undefined) return;  // profile doesn't exist
+    return profile
 }
 function set_chat_profile(profile=null) {
     // Set the profile for a given chat (or unset it if no profile provided)
@@ -3021,9 +3029,6 @@ class SummaryPromptEditInterface {
 
     async create_summary_prompt(index, prompt=null) {
         // Create the full summary prompt for the message at the given index.
-        // The instruct template will automatically add an input sequence to the beginning and an output sequence to the end.
-        // Therefore, if we are NOT using instructOverride, we have to remove the first system sequence at the very beginning which gets added by format_system_prompt.
-        // If we ARE using instructOverride, we have to add a final trailing output sequence
 
         // If no prompt given, use the current settings prompt.
         if (prompt === null) {
@@ -4087,8 +4092,8 @@ function initialize_settings_listeners() {
     bind_setting('#use_global_toggle_state', 'use_global_toggle_state', 'boolean');
 
     // trigger the change event once to update the display at start
-    $('#long_term_context_limit').trigger('change');
-    $('#short_term_context_limit').trigger('change');
+    $(`.${settings_content_class} #long_term_context_limit`).trigger('change');
+    $(`.${settings_content_class} #short_term_context_limit`).trigger('change');
 
     refresh_settings()
 }
