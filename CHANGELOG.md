@@ -8,6 +8,7 @@
 **Fixed** Time delay now applies to re-summarizations on swipe and continue if "Skip First" is disabled.
 **Fixed** Fixed regex scripts on macros failing to load properly
 **Fixed** Fixed bulk summarizations not going in the order of message IDs
+**Fixed** Fixed major lag issues in memory editor especially on Edge
 
 #### v1.1.9
 **ST Version Requirement**: You must be on ST v1.13.2

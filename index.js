@@ -1980,9 +1980,21 @@ class MemoryEditInterface {
         // add a table row for each message index
         let $row;
         let $previous_row;
-        for (let i of this.displayed) {
-            $row = this.update_message_visuals(i, $previous_row)
+        for (let id of this.displayed) {
+            $row = this.update_message_visuals(id, $previous_row)
             $previous_row = $row  // save as previous row
+        }
+
+        // Updating the height of each row is a heavy operation. It requires reading scrollHeight then setting the height.
+        // If you do this after every row, the entire layout would be reloaded each time causing a ton of lag.
+        // Instead, we read all the heights first then set them all, allowing the browser to use a cached layout for all the reads.
+        let heights = []
+        for (let id of this.displayed) {
+            heights.push(this.$table_body.find(`tr#memory_${id}`).find('textarea')[0].scrollHeight + 'px')
+        }
+        for (let i in this.displayed) {
+            let id = this.displayed[i]
+            this.$table_body.find(`tr#memory_${id}`).find('textarea').css('height', heights[i])
         }
 
         this.update_selected()
@@ -2198,7 +2210,6 @@ class MemoryEditInterface {
         let $select_checkbox;
         let $buttons;
         let $sender;
-        let memory_changed = false;  // whether the memory was updated
         if ($row.length === 0) {  // doesn't exist
             $memory = $(`<textarea rows="1">${memory}</textarea>`)
             $select_checkbox = $(`<input class="interface_message_select" type="checkbox" value="${i}">`)
@@ -2225,14 +2236,12 @@ class MemoryEditInterface {
             $sender.wrap('<td></td>').parent().appendTo($row)
             $memory.wrap(`<td class="interface_summary"></td>`).parent().appendTo($row)
             $buttons.wrap(`<td></td>`).parent().appendTo($row)
-            memory_changed = true
 
         } else {  // already exists
             // update text if the memory changed
             $memory = $row.find('textarea')
             if ($memory.val() !== memory) {
                 $memory.val(memory)
-                memory_changed = true
             }
         }
 
@@ -2248,15 +2257,7 @@ class MemoryEditInterface {
             $memory.addClass(get_summary_style_class(msg))
         }
 
-        if (memory && memory_changed) {
-            // Setting these styles has to be done last or you get some weird behavior - the height of some text areas is too large.
-            // Don't know why this is, maybe it has something to do with the classes being set? Who knows.
-            // Also, this is a heavy operation called on each row so it should ONLY be done if the memory was changed.
-            //$memory[0].style.height = "auto";  // Needed this at some point to get it right, but looks like not anymore
-            $memory[0].style.height = $memory[0].scrollHeight + "px";  // set the initial height based on content
-            //$memory.css('height', $memory.prop('scrollHeight') + "px");  // set the initial height based on content
-            // idk which one of thee ^ is faster. Both seem very close.
-        } else if (!memory) {
+        if (!memory) {
             // If no memory, set the placeholder text to the error (empty if no error)
             $memory.attr('placeholder', `${error}`);
         }
@@ -3724,7 +3725,7 @@ async function summarize_message(index) {
 
     // update the message summary text again now with the memory, still no styling
     update_message_visuals(index, false)
-    memoryEditInterface.update_message_visuals(index, null, false)
+    memoryEditInterface.update_message_visuals(index, null, false, true)
 
     // If the most recent message, scroll to the bottom
     if (index === chat.length - 1) {
