@@ -398,6 +398,47 @@ async function wait_for_event(name, timeout=5000) {
 }
 
 
+class Profiler {
+    constructor() {
+        this.data = {}
+    }
+
+    mark(id) {
+        if (!this.data[id]) {
+            this.data[id] = {'start': performance.now(), 'deltas': []}
+        } else {
+            this.data[id]['start'] = performance.now()
+        }
+    }
+
+    add(id) {
+        let start
+        if (!this.data[id]) {
+            start = performance.now()
+            this.data[id] = {'start': start, 'deltas': []}
+        } else {
+            start = this.data[id]['start']
+        }
+        this.data[id]['deltas'].push(performance.now() - start)
+    }
+
+    reset() {
+        this.data = {}
+    }
+
+    show() {
+        console.log(this.data)
+        for (let id of Object.keys(this.data)) {
+            let total = 0
+            for (let n of this.data[id]['deltas']) {
+                total += n
+            }
+            console.log(`${id}: ${total}`)
+        }
+    }
+}
+var p = new Profiler()
+
 // Completion presets
 function get_current_preset() {
     // get the currently selected completion preset
@@ -3395,10 +3436,16 @@ function update_message_inclusion_flags() {
     let long_limit_reached = false;
     let end = chat.length - 1;
 
-    let short_summary = ""  // total concatenated summary so far
-    let long_summary = ""  // temp summary storage to check token length
-    let new_short_summary = ""
-    let new_long_summary = ""
+    let short_token_size = 1  // due to the separator being at the beginning of text, it seems to always add 1 token to the count
+    let long_token_size = 1
+
+    // figure out how many tokens the injection separator adds
+    let sep_size = calculate_injection_separator_size()
+
+    // token limits
+    let short_token_limit = get_short_token_limit()
+    let long_token_limit = get_long_token_limit()
+
 
     for (let i = end; i >= 0; i--) {
         let message = chat[i];
@@ -3430,13 +3477,12 @@ function update_message_inclusion_flags() {
 
             // consider this for short term memories as long as we aren't separating long-term or (if we are), this isn't a long-term
             if (!separate_long_term || !get_data(message, 'remember')) {
-                new_short_summary = concatenate_summary(short_summary, message)  // concatenate this summary
-                let short_token_size = count_tokens(new_short_summary);
-                if (short_token_size > get_short_token_limit()) {  // over context limit
+                let new_short_token_size = short_token_size + sep_size + count_tokens(get_memory(message))
+                if (new_short_token_size > short_token_limit) {  // over context limit
                     short_limit_reached = true;
                 } else {  // under context limit
                     set_data(message, 'include', 'short');
-                    short_summary = new_short_summary
+                    short_token_size = new_short_token_size
                     continue
                 }
             }
@@ -3445,13 +3491,12 @@ function update_message_inclusion_flags() {
         // if the short-term limit has been reached (or we are separating), check the long-term limit.
         let remember = get_data(message, 'remember');
         if (!long_limit_reached && remember) {  // long-term limit hasn't been reached yet and the message was marked to be remembered
-            new_long_summary = concatenate_summary(long_summary, message)  // concatenate this summary
-            let long_token_size = count_tokens(new_long_summary);
-            if (long_token_size > get_long_token_limit()) {  // over context limit
+            let new_long_token_size = long_token_size + sep_size + count_tokens(get_memory(message))
+            if (new_long_token_size > long_token_limit) {  // over context limit
                 long_limit_reached = true;
             } else {
                 set_data(message, 'include', 'long');  // mark the message as long-term
-                long_summary = new_long_summary
+                long_token_size = new_long_token_size
                 continue
             }
         }
@@ -3459,6 +3504,16 @@ function update_message_inclusion_flags() {
         // if we haven't marked it for inclusion yet, mark it as excluded
         set_data(message, 'include', null);
     }
+
+
+    // display the estimated total tokens compared to the actual total tokens
+    if (get_settings('debug_mode')) {
+        let short_actual = count_tokens(concatenate_summaries(collect_chat_messages('short')))
+        let long_actual = count_tokens(concatenate_summaries(collect_chat_messages('long')))
+        debug(`Estimated short-term tokens: ${short_token_size}  Actual: ${short_actual}`)
+        debug(`Estimated long-term tokens: ${long_token_size}  Actual: ${long_actual}`)
+    }
+
 
     update_all_message_visuals()
 }
@@ -3488,6 +3543,16 @@ function concatenate_summaries(indexes, separator=null) {
     return summary
 }
 
+function calculate_injection_separator_size(separator=null) {
+    // Simply counting the tokens in the injection separator does not tell you how many total tokens it will actually add.
+    // Instead, we need to test it with some sample messages and see how the count changes.
+    let ctx = getContext()
+    if (separator === null) separator = get_settings('summary_injection_separator')
+    let text = "This is a test."
+    let t1 = count_tokens(text)
+    let t2 = count_tokens(text + separator + text)  // in the middle
+    return t2 - (2*t1)
+}
 function collect_chat_messages(include) {
     // Get a list of chat message indexes identified by the given criteria
     let context = getContext();

@@ -9,6 +9,7 @@
 **Fixed** Fixed regex scripts on macros failing to load properly
 **Fixed** Fixed bulk summarizations not going in the order of message IDs
 **Fixed** Fixed major lag issues in memory editor especially on Edge
+**Fixed** Fixing lag issues when using high context for memory injection
 
 #### v1.1.9
 **ST Version Requirement**: You must be on ST v1.13.2
