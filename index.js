@@ -35,9 +35,7 @@ import { loadMovingUIState, power_user } from '../../../power-user.js';
 import { dragElement } from '../../../RossAscends-mods.js';
 import { debounce_timeout } from '../../../constants.js';
 import { MacrosParser } from '../../../macros.js';
-import { commonEnumProviders } from '../../../slash-commands/SlashCommandCommonEnumsProvider.js';
-import { getRegexScripts } from '../../../../scripts/extensions/regex/engine.js'
-import { runRegexScript } from '../../../../scripts/extensions/regex/engine.js'
+import { getRegexScripts, runRegexScript } from '../../../../scripts/extensions/regex/engine.js'
 import { t, translate } from '../../../i18n.js';
 
 export { MODULE_NAME };
