@@ -4425,7 +4425,7 @@ function initialize_slash_commands() {
             } else {
                 range = stringToRange(value, 0, chat.length - 1);
                 if (!range) {
-                    error(`Invalid range provided: "${value}"`);
+                    error(`Invalid message number or range "${value}". Latest message is #${chat.length-1}.`);
                     return "";
                 }
             }
@@ -4468,6 +4468,10 @@ function initialize_slash_commands() {
             }
             if (isNaN(index)) {
                 error(`Invalid index: "${values[0]}"`);
+                return "";
+            }
+            if (index >= chat.length || index < 0) {
+                error(`Invalid message number ${index}. Latest message is #${chat.length-1}`)
                 return "";
             }
             debug(`Setting memory for message ${index} to "${text}"`)
