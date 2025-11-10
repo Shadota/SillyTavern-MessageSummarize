@@ -258,20 +258,23 @@ This is most likely an issue with the summary prompt.\
 ### Reporting an Issue
 You can raise an issue here, but I am more responsive on the SillyTavern [Discord server](https://discord.gg/sillytavern) as Qvink (#qvink1). There you will find [forum thread](https://discord.com/channels/1100685673633153084/1318109682329587722) dedicated to this extension (and others). You can send your problems there or DM me directly.
 
-When you report an issue, please include the following information:
+The best way to get a bug fixed is to help me reproduce it. Simply saying "X doesn't work" is unhelpful, even if you have a guess as to why.
+The easiest and quickest way to help me reproduce the bug is to provide the following information:
 1. Description of the bug
 2. Your SillyTavern version + branch (actual numbers, not just "latest")
 3. Your extension version + branch (actual numbers, not just "latest")
-4. Whether you are using **Text Completion** or **Chat Completion** (and the model you are using, if relevant).
-5. Let me know that you read the above [Troubleshooting](#troubleshooting) section, and what didn't work or if your issue wasn't there.
-6. Detailed steps to reproduce the bug in a **minimal environment** (new chat, default config, no other extensions).
-7. Any errors in the browser console or ST terminal (you can access your browser console with F12).
-
-The best way to help identify a bug is to help me reproduce it. Simply saying "X doesn't work" is unhelpful. Ideally, the steps you provide in #6 above should start with creating a new, blank chat, using default settings for the extension, then every action you take up until you see something unexpected happen along with what you **expected** to happen instead. You can revert settings to default by scrolling to the bottom of the config and clicking `Revert Settings`.
+4. Your device and browser
+5. Whether you are using **Text Completion** or **Chat Completion** (and the model you are using, if relevant).
+6. Let me know that you read the above [Troubleshooting](#troubleshooting) section, and what didn't work or if your issue wasn't there.
+7. Detailed, numbered, steps to reproduce the bug starting with a **minimal environment**. This means starting with creating a new, blank chat, using default settings for the extension, and disabling all other extensions. 
+Then record every single action you take up until you see something unexpected happen along with what you **expected** to happen instead. 
+You can revert settings to default by scrolling to the bottom of the config and clicking `Revert Settings`.
+8. Any errors in the browser console or ST terminal (you can access your console with F12 in most browsers). These can be included in the steps from #7.
 
 ### Known Issues
 - When editing a message that already has a memory, the memory displayed below the message does not have the right color. This is just a visual bug, and it will correct itself after the next summarization.
 - Using the API tokenizer may cause lag when opening chats under certain circumstances, cause currently unknown.
+- Incompatible with the NoAss extension when using chat completion endpoints.
 
 ### Todo
 - ~~Ability to choose a connection profile for summarization~~
