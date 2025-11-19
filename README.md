@@ -60,7 +60,7 @@ How this extension addresses these issues:
 - To perform actions on multiple summaries at once, click the `Edit Memory` button at the top. Here you can filter for specific memories or manually select memories to modify.
 
 #### Configuration Profiles
-- This extension allows you to create configuration profiles that can be set to active for specific characters or specific chats.
+- This extension allows you to create configuration profiles that can be locked to specific characters or chats. If no profile is locked, the profile named "Default" will be loaded.
 - Config profiles don't save automatically, you must click the `save` icon for any changes to be stored permanently.
 - You can also restore a profile to its last saved state by clicking the `restore` icon.
 
