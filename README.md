@@ -12,7 +12,7 @@
 - [Known Issues](#known-issues)
 
 ### Version Requirement
-Requires ST v1.13.2 or above.
+Requires ST v1.13.5 or above.
 
 ### Description
 - This extension is an alternative to the built-in `Summarize` extension, reworking how memory is stored by summarizing each message individually, rather than all at once.
@@ -133,6 +133,7 @@ You can easily customize the CSS for displayed memories by setting the following
 - `--qm-default`: Summaries not included in any memory (default light grey)
 - `--qm-excluded`: Summaries manually force-excluded (default dark grey)
 - `--qm-message-removed`: Messages that have been removed from context and replaced by summaries (default light grey)
+- `--qm-redundant-opacity`: Opacity percentage of summaries that have not *yet* been injected due to the `Start Injecting After` setting.
 
 Just make sure to use the `!important` directive to override the default styles.
 For example, to color short-term memories yellow and long-term memories black, you would put the following in your "Custom CSS" user settings:
