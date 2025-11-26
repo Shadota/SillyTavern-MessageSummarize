@@ -1,19 +1,26 @@
 # Changelog
 
+#### v1.3.0
+- **IMPORTANT**: Your summary `Completion Preset` is now entirely determined by the `Connection Profile`. If you previously had a `Completion Preset` configured for summaries, you will need to make sure that your `Connection Profile` specifies it instead.
+- **New Feature**: `Connection Profiles` are now used for summaries **without switching** back and forth.
+- **New Feature**: Parallel API requests now supported, configured by the `Parallel Summaries` setting.
+- **Removed**: You can no longer configure a separate `Completion Preset` for summaries (it is instead determined by the `Connection Profile`).
+- **Fixed**: Fixed case where short-term messages would be included in the short-term context size calculation even if they were not injected due to injection delay.
+
 #### v1.2.16
-**ST Version Requirement**: You must be on ST v1.13.5
-**Fixed** Now waits for connection profile to load before continuing with summary
-**Fixed** Fixed major lag issues in memory editor especially on Edge
-**Fixed** Fixing lag issues when using high context for memory injection
+- **ST Version Requirement**: You must be on ST v1.13.5
+- **Fixed** Now waits for connection profile to load before continuing with summary
+- **Fixed** Fixed major lag issues in memory editor especially on Edge
+- **Fixed** Fixing lag issues when using high context for memory injection
 
 #### v1.2.7
 **ST Version Requirement**: You must be on ST v1.13.2
 **IMPORTANT**: Any profiles locked to specific chats (not characters) will need to be re-locked.
-**Fixed** Locking profiles to a chat now persist after branching.
-**Fixed** Fixed double summary in group chats
-**Fixed** Time delay now applies to re-summarizations on swipe and continue if "Skip First" is disabled.
-**Fixed** Fixed regex scripts on macros failing to load properly
-**Fixed** Fixed bulk summarizations not going in the order of message IDs
+- **Fixed** Locking profiles to a chat now persist after branching.
+- **Fixed** Fixed double summary in group chats
+- **Fixed** Time delay now applies to re-summarizations on swipe and continue if "Skip First" is disabled.
+- **Fixed** Fixed regex scripts on macros failing to load properly
+- **Fixed** Fixed bulk summarizations not going in the order of message IDs
 
 #### v1.1.9
 **ST Version Requirement**: You must be on ST v1.13.2

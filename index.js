@@ -73,11 +73,6 @@ const summarize_button_class = `${MODULE_NAME}_summarize_button`
 const edit_button_class = `${MODULE_NAME}_edit_button`
 const forget_button_class = `${MODULE_NAME}_forget_button`
 
-// global flags and whatnot
-var STOP_SUMMARIZATION = false  // flag toggled when stopping summarization
-var SUMMARIZATION_DELAY_TIMEOUT = null  // the set_timeout object for the summarization delay
-var SUMMARIZATION_DELAY_RESOLVE = null
-
 // Settings
 const default_prompt = `You are a summarization assistant. Summarize the given fictional narrative in a single, very short and concise statement of fact.
 Responses should be no more than {{words}} words.
@@ -114,8 +109,7 @@ const default_settings = {
     prompt_role: extension_prompt_roles.SYSTEM,
     prefill: "",   // summary prompt prefill
     show_prefill: false, // whether to show the prefill when memories are displayed
-    completion_preset: "",  // completion preset to use for summarization. Empty ("") indicates the same as currently selected.
-    connection_profile: "",
+    connection_profile: "",  // connection profile to use for summarization. Empty ("") indicates the same as currently selected.
 
     auto_summarize: true,   // whether to automatically summarize new chat messages
     summarization_delay: 0,  // delay auto-summarization by this many messages (0 summarizes immediately after sending, 1 waits for one message, etc)
@@ -123,6 +117,7 @@ const default_settings = {
     summarization_time_delay_skip_first: false,  // skip the first delay after a character message
     auto_summarize_batch_size: 1,  // number of messages to summarize at once when auto-summarizing
     auto_summarize_message_limit: 10,  // maximum number of messages to go back for auto-summarization.
+    parallel_summaries_count: 1,  // number of summaries to do in parallel (1 = sequential)
     auto_summarize_on_edit: false,  // whether to automatically re-summarize edited chat messages
     auto_summarize_on_swipe: true,  // whether to automatically summarize new message swipes
     auto_summarize_on_continue: false, // whether automatically re-summarize after a continue
@@ -169,7 +164,6 @@ const global_settings = {
     memory_edit_interface_settings: {},  // settings last used in the memory edit interface
 }
 const settings_ui_map = {}  // map of settings to UI elements
-
 
 // Utility functions
 function log() {
@@ -437,113 +431,20 @@ class Profiler {
 }
 var p = new Profiler()
 
-// Completion presets
-function get_current_preset() {
-    // get the currently selected completion preset
-    return getPresetManager().getSelectedPresetName()
-}
-async function get_summary_preset() {
-    // get the current summary preset OR the default if it isn't valid for the current API
-    let preset_name = get_settings('completion_preset');
-    if (preset_name === "" || !await verify_preset(preset_name)) {  // none selected or invalid, use the current preset
-        preset_name = get_current_preset();
-    }
-    return preset_name
-}
-async function set_preset(name) {
-    if (name === get_current_preset()) return;  // If already using the current preset, return
-
-    if (!check_preset_valid()) return;  // don't set an invalid preset
-
-    // Set the completion preset
-    debug(`Setting completion preset to ${name}`)
-    if (get_settings('debug_mode')) {
-        toastr.info(`Setting completion preset to ${name}`);
-    }
-    let ctx = getContext();
-    await ctx.executeSlashCommandsWithOptions(`/preset ${name}`)
-}
-async function get_presets() {
-    // Get the list of available completion presets for the selected connection profile API
-    let summary_api = await get_connection_profile_api()  // API for the summary connection profile (undefined if not active)
-    let { presets, preset_names } = getPresetManager().getPresetList(summary_api)  // presets for the given API (current if undefined)
-    // array of names
-    if (Array.isArray(preset_names)) return preset_names
-    // object of {names: index}
-    return Object.keys(preset_names)
-}
-async function verify_preset(name) {
-    // check if the given preset name is valid for the current API
-    if (name === "") return true;  // no preset selected, always valid
-
-    let preset_names = await get_presets()
-
-    if (Array.isArray(preset_names)) {  // array of names
-        return preset_names.includes(name)
-    } else {  // object of {names: index}
-        return preset_names[name] !== undefined
-    }
-
-}
-async function check_preset_valid() {
-    // check whether the current preset selected for summarization is valid
-    let summary_preset = get_settings('completion_preset')
-    let valid_preset = await verify_preset(summary_preset)
-    if (!valid_preset) {
-        toast_debounced(`Your selected summary preset "${summary_preset}" is not valid for the current API.`, "warning")
-        return false
-    }
-    return true
-}
-async function get_summary_preset_max_tokens() {
-    // get the maximum token length for the chosen summary preset
-    let preset_name = await get_summary_preset()
-    let preset = getPresetManager().getCompletionPresetByName(preset_name)
-
-    // if the preset doesn't have a genamt (which it may not for some reason), use the current genamt. See https://discord.com/channels/1100685673633153084/1100820587586273343/1341566534908121149
-    // Also if you are using chat completion, it's openai_max_tokens instead.
-    let max_tokens = preset?.genamt || preset?.openai_max_tokens || amount_gen
-    debug("Got summary preset genamt: "+max_tokens)
-
-    return max_tokens
-}
-
 // Connection profiles
-let connection_profiles_active;
 function check_connection_profiles_active() {
-    // detect whether the connection profiles extension is active by checking for the UI elements
-    if (connection_profiles_active === undefined) {
-        connection_profiles_active = $('#sys-settings-button').find('#connection_profiles').length > 0
-    }
-    return connection_profiles_active;
+    // detect whether the connection profiles extension is active
+    return !getContext().extensionSettings.disabledExtensions.includes('connection-manager')
 }
-async function get_current_connection_profile() {
+function get_current_connection_profile() {
     if (!check_connection_profiles_active()) return;  // if the extension isn't active, return
-    // get the current connection profile
-    let ctx = getContext();
-    let result = await ctx.executeSlashCommandsWithOptions(`/profile`)
-    return result.pipe
+    return getContext().extensionSettings.connectionManager.selectedProfile;
 }
-async function get_connection_profile_api(name) {
-    // Get the API for the given connection profile name. If not given, get the current summary profile.
+function get_connection_profile_api(id) {
+    // Get the API for the given connection profile ID. If not given, get the current summary profile.
     if (!check_connection_profiles_active()) return;  // if the extension isn't active, return
-    if (name === undefined) name = await get_summary_connection_profile()
-    let ctx = getContext();
-    let result = await ctx.executeSlashCommandsWithOptions(`/profile-get ${name}`)
-
-    if (!result.pipe) {
-        debug(`/profile-get ${name} returned nothing - no connection profile selected`)
-        return
-    }
-
-    let data;
-    try {
-        data = JSON.parse(result.pipe)
-    } catch {
-        error(`Failed to parse JSON from /profile-get for \"${name}\". Result:`)
-        error(result)
-        return
-    }
+    if (id === undefined) id = get_summary_connection_profile()
+    let data = get_connection_profile(id)
 
     // If the API type isn't defined, it might be excluded from the connection profile. Assume based on mode.
     if (data.api === undefined) {
@@ -559,74 +460,50 @@ async function get_connection_profile_api(name) {
     }
     return CONNECT_API_MAP[data.api].selected
 }
-async function get_summary_connection_profile() {
-    // get the current connection profile OR the default if it isn't valid for the current API
-    let name = get_settings('connection_profile');
+function get_summary_connection_profile() {
+    // get the current connection profile ID OR the default if it isn't valid for the current API
+    let id = get_settings('connection_profile');
 
     // If none selected, invalid, or connection profiles not active, use the current profile
-    if (name === "" || !await verify_connection_profile(name) || !check_connection_profiles_active()) {
-        name = await get_current_connection_profile();
+    if (id === "" || !verify_connection_profile(id) || !check_connection_profiles_active()) {
+        id = get_current_connection_profile();
     }
 
-    return name
+    return id
 }
-async function set_connection_profile(name) {
-    // Set the connection profile
+function verify_connection_profile(id) {
+    // check if the given connection profile ID is valid.
     if (!check_connection_profiles_active()) return;  // if the extension isn't active, return
-    if (!name || name === await get_current_connection_profile()) return;  // If already using the given profile, return
-    if (!await check_connection_profile_valid()) return;  // don't set an invalid profile
-
-    // Set the completion preset
-    debug(`Setting connection profile to "${name}"`)
-    if (get_settings('debug_mode')) {
-        toastr.info(`Setting connection profile to "${name}"`);
-    }
-
-    let ctx = getContext();
-    const waitForLoad = wait_for_event(ctx.event_types.CONNECTION_PROFILE_LOADED, 5000);  // set trigger when profile loads
-
-    try {
-        await ctx.executeSlashCommandsWithOptions(`/profile ${name}`)  // call the "/profile" command to set it
-        await waitForLoad;  // wait for the profile to load
-        debug(`Profile loaded. Waiting for status to change...`);
-        await waitUntilCondition(() => online_status !== 'no_connection', 5000, 100);  // wait for profile to be online
-        debug(`Saw online_status change (${online_status}). Connection profile set to ${name}.`);
-    } catch (e) {
-        error(`Failed to set connection profile "${name}": ${e}`);
-    }
+    if (id === "") return true;  // no profile selected, always valid
+    let data = get_connection_profile(id)  // found an existing profile for this ID
+    if (data) return true
+    return false
 }
-async function get_connection_profiles() {
+function get_connection_profile(id) {
+    // Return the info for the given connection profile ID
+    let data = get_connection_profiles().find((p) => p.id === id);
+    if (data) return data
+    error(`Connection profile not found for ID: ${id}`)
+}
+function get_connection_profiles() {
     // Get a list of available connection profiles
-    if (!check_connection_profiles_active()) return;  // if the extension isn't active, return
-    let ctx = getContext();
-    let result = await ctx.executeSlashCommandsWithOptions(`/profile-list`)  // the "/profile-list" command returns a stringified list
-    try {
-        return JSON.parse(result.pipe)
-    } catch {
-        error("Failed to parse JSON from /profile-list. Result:")
-        error(result)
-    }
+    if (!check_connection_profiles_active()) return [];  // if the extension isn't active, return
+    return getContext().extensionSettings.connectionManager.profiles
 
 }
-async function verify_connection_profile(name) {
-    // check if the given connection profile name is valid
-    if (!check_connection_profiles_active()) return;  // if the extension isn't active, return
-    if (name === "") return true;  // no profile selected, always valid
+function get_profile_max_tokens() {
+    // get the maximum token length for the chosen profile's completion preset
+    let profile_id = get_summary_connection_profile()
+    let profile = get_connection_profile(profile_id)
+    let preset = getPresetManager().getCompletionPresetByName(profile.preset)
 
-    let names = await get_connection_profiles()
-    return names.includes(name)
+    // if the preset doesn't have a genamt use the current genamt.
+    // it might be null if the preset has never been saved or was reset to default.
+    // Also if you are using chat completion, it's openai_max_tokens instead.
+    let max_tokens = preset?.genamt || preset?.openai_max_tokens || amount_gen
+    debug("Got summary preset genamt: "+max_tokens)
+    return max_tokens
 }
-async function check_connection_profile_valid()  {
-    // check whether the current connection profile selected for summarization is valid
-    if (!check_connection_profiles_active()) return;  // if the extension isn't active, return
-    let summary_connection = get_settings('connection_profile')
-    let valid = await verify_connection_profile(summary_connection)
-    if (!valid) {
-        toast_debounced(`Your selected summary connection profile "${summary_connection}" is not valid.`, "warning")
-    }
-    return valid
-}
-
 
 
 // Settings Management
@@ -1000,33 +877,23 @@ function update_profile_section() {
         $chat_icon.addClass(unlock_class)
     }
 }
-async function update_preset_dropdown() {
-    // set the completion preset dropdown
-    let $preset_select = $(`.${settings_content_class} #completion_preset`);
-    let summary_preset = get_settings('completion_preset')
-    let preset_options = await get_presets()
-    $preset_select.empty();
-    $preset_select.append(`<option value="">${t`Same as Current`}</option>`)
-    for (let option of preset_options) {  // construct the dropdown options
-        $preset_select.append(`<option value="${option}">${option}</option>`)
-    }
-    $preset_select.val(summary_preset)
 
-    // set a click event to refresh the preset dropdown for the currently available presets
-    $preset_select.off('click').on('click', () => update_preset_dropdown());
-
-}
 async function update_connection_profile_dropdown() {
-    // set the completion preset dropdown
+    // set the connection profile dropdown
     let $connection_select = $(`.${settings_content_class} #connection_profile`);
-    let summary_connection = get_settings('connection_profile')
-    let connection_options = await get_connection_profiles()
+    let connection_profiles = await get_connection_profiles()
     $connection_select.empty();
     $connection_select.append(`<option value="">${t`Same as Current`}</option>`)
-    for (let option of connection_options) {  // construct the dropdown options
-        $connection_select.append(`<option value="${option}">${option}</option>`)
+    for (let profile of connection_profiles) {  // construct the dropdown options
+        $connection_select.append(`<option value="${profile.id}">${profile.name}</option>`)
     }
-    $connection_select.val(summary_connection)
+
+    let profile_id = get_summary_connection_profile()
+    if (!verify_connection_profile(profile_id)) {
+        toast_debounced(`Selected summary connection profile ID is invalid: ${ID}`, "warning")
+        profile_id = ""  // fall back to "same as current"
+    }
+    $connection_select.val(profile_id)
 
     // set a click event to refresh the dropdown
     $connection_select.off('click').on('click', () => update_connection_profile_dropdown());
@@ -1038,15 +905,10 @@ function refresh_settings() {
     // connection profiles
     if (check_connection_profiles_active()) {
         update_connection_profile_dropdown()
-        check_connection_profile_valid()
     } else { // if connection profiles extension isn't active, hide the connection profile dropdown
-        $(`.${settings_content_class} #connection_profile`).parent().hide()
+        $(`.${settings_content_class} #connection_profile`).parent().parent().hide()
         debug("Connection profiles extension not active. Hiding connection profile dropdown.")
     }
-
-    // completion presets
-    update_preset_dropdown()
-    check_preset_valid()
 
     // auto_summarize_message_limit must be >= auto_summarize_batch_size (unless the limit is disabled, i.e. -1)
     let auto_limit = get_settings('auto_summarize_message_limit')
@@ -1082,6 +944,7 @@ function refresh_settings() {
         get_settings_element('auto_summarize_batch_size')?.prop('disabled', !auto_summarize);
         get_settings_element('auto_summarize_progress')?.prop('disabled', !auto_summarize);
         get_settings_element('summarization_delay')?.prop('disabled', !auto_summarize);
+        get_settings_element('parallel_summaries_count')?.prop('disabled', !auto_summarize);
 
         // If not excluding message, then disable the option to preserve the last user message
         let excluding_messages = get_settings('exclude_messages_after_threshold')
@@ -1213,9 +1076,6 @@ function save_profile(profile=null) {
     let profiles = get_settings('profiles');
     profiles[profile] = copy_settings();
     set_settings('profiles', profiles);
-
-    // check preset validity
-    check_preset_valid()
 
     // update the button highlight
     update_save_icon_highlight();
@@ -1670,7 +1530,7 @@ function progress_bar(id, progress, total, title) {
 
     // add a click event to abort the summarization
     bar.find('button').on('click', function () {
-        stop_summarization();
+        summaryQueue.stop();
     })
 
     // append to the main chat area (#sheld)
@@ -1919,8 +1779,7 @@ class MemoryEditInterface {
             this.update_table()
         })
         this.$content.find(`#bulk_summarize`).on('click', async () => {
-            await summarize_messages(this.get_sorted_selection());  // summarize in ascending order
-            this.update_table()
+            await summaryQueue.summarize(this.get_sorted_selection());  // summarize in ascending order
         })
         this.$content.find(`#bulk_delete`).on('click', () => {
             this.get_sorted_selection().forEach(id => {
@@ -1962,7 +1821,7 @@ class MemoryEditInterface {
         })
         this.$content.on("click", `tr .${summarize_button_class}`, async function () {
             let message_id = Number($(this).closest('tr').attr('message_id'));  // get the message ID from the row's "message_id" attribute
-            await summarize_messages(message_id);
+            await summaryQueue.summarize(message_id);
         });
 
         add_i18n(this.$content)
@@ -1977,6 +1836,7 @@ class MemoryEditInterface {
         this.update_selected()
 
         let result = this.popup.show();  // gotta go before init_pagination so the update
+        if (this.ctx.isMobile()) this.$filter_bar.toggle()  // start filter bar hidden on mobile
         this.update_table()
 
         if (this.settings.reverse_page_sort) {
@@ -2530,9 +2390,7 @@ class SummaryPromptEditInterface {
 
         // set the prompt text and the macro settings
         this.from_settings()
-
-        let summary_profile = await get_summary_connection_profile()
-        this.api = await get_connection_profile_api(summary_profile)
+        this.api = await get_connection_profile_api()
 
         // translate
         add_i18n(this.$content)
@@ -2896,7 +2754,10 @@ class SummaryPromptEditInterface {
         let index = this.ctx.chat.length-1
         let text = this.$prompt.val()
         let messages = await this.create_summary_prompt(index, text)
-        let prompt = createRawPrompt(messages, this.api, false, false, '', this.get_prefill())  // build prompt
+        let profile_id = get_summary_connection_profile()
+
+        let prompt = this.ctx.ConnectionManagerRequestService.constructPrompt(messages, profile_id)
+
         if (typeof prompt === 'string') {
             prompt = clean_string_for_html(prompt)
         } else {  // array
@@ -3184,10 +3045,283 @@ class SummaryPromptEditInterface {
                 add([{content: parts[i]}])
             }
         }
+
+        messages.push({content: "\n"+this.get_prefill(), role: 'assistant'})
         return messages
     }
 }
 
+class SummaryQueue {
+    constructor() {
+        this.queue = []  // queue of pending summarization tasks
+        this.active_workers = 0  // number of currently active workers
+        this.queue_running = false  // whether the queue is currently running
+        this.summarization_stopped = false  // flag toggled when stopping summarization
+        this.summarization_delay_timeout = null  // the set_timeout object for the summarization delay
+        this.summarization_delay_resolve = null
+        this.first_summary = false  // flag set when an assistant message is sent
+        this.show_progress = true  // Whether to show the progress bar
+        this.current_progress = 0
+        this.current_task_count = 0
+    }
+
+    async summarize(indexes, skip_first=true, show_progress=true) {
+        // Summarize the given message indexes
+        let ctx = getContext();
+        if (indexes === null) {  // default to the mose recent message, min 0
+            indexes = [Math.max(ctx.chat.length - 1, 0)]
+        }
+        indexes = Array.isArray(indexes) ? indexes : [indexes]  // accept a single index
+        if (!indexes.length) return;
+
+        let profile = get_summary_connection_profile()
+        skip_first = skip_first || get_settings('summarization_time_delay_skip_first')  // Whether to skip the first summary delay
+        this.show_progress = this.show_progress || show_progress  // show progress if specified by any current tasks
+        this.current_task_count += indexes.length
+
+        // Update the total of the progress bar
+        if (this.show_progress && this.current_task_count > 1) {
+            progress_bar('summarize', null, this.current_task_count, null);
+        }
+
+
+        // Add each one to the queue
+        debug("Adding indexes to queue: ", indexes)
+        let promises = []
+        let first = this.queue.length === 0 && this.current_progress === 0  // Whether this is the first summary in a series of summaries
+        for (let index of indexes)  {
+            let delay = !first || (first && !skip_first);  // Whether the summary should be delayed
+            let promise = new Promise((resolve, reject) => {
+                this.queue.push({index, profile, delay, resolve, reject});
+            });
+            promises.push(promise);
+            this.update_message_visuals(index, `Summary queued...`)
+            first = false  // set flag after first task
+        }
+
+        // Wait for all summaries to complete
+        this.run();  // attempt to run the queue, resolving each task as they complete
+        for (let promise of promises) {
+            await promise.catch(result => debug("Aborted summarization promise"));
+        }
+
+        // If we have completed all tasks, clear flags and whatnot
+        if (this.current_progress >= this.current_task_count) {
+            debug("Summary run complete - resetting flags.")
+            remove_progress_bar('summarize')  // remove progress bar
+            this.show_progress = false
+            this.summarization_stopped = false
+            this.current_task_count = 0
+            this.current_progress = 0
+
+            if (get_settings('block_chat')) {  // reactivate send button
+                ctx.activateSendButtons();
+            }
+
+            // Update the memory state interface if it's open
+            memoryEditInterface.update_table()
+
+            // Update injections
+            refresh_memory()
+        }
+    }
+
+    async run() {
+        // Run the queue. This is called whenever a task finishes or when a new task is created.
+        // If the queue is already running or manually stopped, don't run again.
+        if (this.queue_running || this.summarization_stopped) return
+        this.queue_running = true
+        debug("Running summary queue.")
+        let ctx = getContext();
+
+        // optionally block user from sending chat messages while summarization is in progress
+        if (get_settings('block_chat')) {
+            ctx.deactivateSendButtons();
+        }
+
+        // Start workers if we have capacity and tasks
+        let max_workers = get_settings('parallel_summaries_count') || 1;
+        while (this.active_workers < max_workers && this.queue.length > 0) {
+            let task = this.queue.shift();
+            this.active_workers += 1;
+
+            // Show progress if we are summarizing more than 1 message
+            if (this.show_progress && this.current_task_count > 1) {
+                progress_bar('summarize', this.current_progress+1, this.current_task_count, "Summarizing...");
+            }
+
+            // delay start according to settings
+            let time_delay = get_settings('summarization_time_delay')
+            if (time_delay > 0 && task.delay) {
+                debug(`Delaying generation by ${time_delay} seconds`);
+                if (this.show_progress && this.current_task_count > 1) progress_bar('summarize', null, null, "Delaying");
+                this.update_message_visuals(task.index, `Delaying summary ${time_delay}s...`)
+                await new Promise((resolve) => {
+                    this.summarization_delay_timeout = setTimeout(resolve, time_delay * 1000)
+                    this.summarization_delay_resolve = resolve  // store the resolve function to call when cleared
+                });
+            }
+            if (this.summarization_stopped) {  // summarization stopped during the delay
+                task.reject(new Error("Summarization stopped"))
+                this.active_workers -= 1;
+                this.current_progress += 1;
+                break;
+            }
+
+            this.handle_task(task);  // Start worker (don't await - let it run in parallel)
+        }
+        this.queue_running = false  // queue has stopped running.
+    }
+
+    stop() {
+        // Immediately stop summarization and clear the task queue
+        if (this.summarization_stopped) return  // already stopped
+
+        this.summarization_stopped = true  // set the flag so asynchronous functions know
+        getContext().stopGeneration();  // stop generation on current message
+        clearTimeout(this.summarization_delay_timeout)  // clear the summarization delay timeout
+        if (this.summarization_delay_resolve !== null) this.summarization_delay_resolve()  // resolve the delay promise so the await goes through
+        progress_bar("summarize", null, null, "Stopping...")
+
+        // Clear the queue and reject all pending tasks
+        while (this.queue.length > 0) {
+            this.current_progress += 1
+            let task = this.queue.shift();
+            task.reject(new Error("Summarization stopped"));
+        }
+        this.active_workers = 0
+        progress_bar("summarize", this.current_progress, this.current_task_count, "Stopping...")
+        log("Aborted summarization.")
+    }
+
+    async handle_task(task) {
+        try {
+            await this.summarize_message(task.index, task.profile);
+            task.resolve();
+        } catch (error) {
+            task.reject(error);
+        } finally {
+            this.active_workers -= 1;
+            this.current_progress += 1;
+            this.run();  // attempt to run more workers
+        }
+    }
+
+    update_message_visuals(index, text=null) {
+        // Update the given message summary text. Does not update style.
+        update_message_visuals(index, false, text)
+        memoryEditInterface.update_message_visuals(index, null, false, text)
+    }
+
+    async summarize_message(index, profile) {
+        // Summarize a message given the chat index, replacing any existing memories
+
+        let context = getContext();
+        let message = context.chat[index]
+        let message_hash = getStringHash(message.mes);
+
+        // clear the reasoning early to avoid showing it when summarizing
+        set_data(message, 'reasoning', "")
+
+        // Temporarily update the message summary text to indicate that it's being summarized (no styling based on inclusion criteria)
+        // A full visual update with style should be done on the whole chat after inclusion criteria have been recalculated
+        this.update_message_visuals(index, "Summarizing...")
+
+        // If the most recent message, scroll to the bottom to get the summary in view (affected by ST settings)
+        if (index === chat.length - 1) {
+            scrollChatToBottom();
+        }
+
+        // construct the full summary prompt for the message
+        let messages = await summaryPromptEditInterface.create_summary_prompt(index)
+
+        // summarize it
+        let result;
+        let err = null;
+        try {
+            debug(`Summarizing message ${index}...`)
+            result = await this.summarize_text(messages, profile)
+        } catch (e) {
+            if (e === "Clicked stop button") {  // summarization was aborted
+                err = "Summarization aborted"
+            } else {
+                err = e.message
+                if (e.message === "No message generated") {
+                    err = "Empty Response"
+                } else {
+                    error(`Unrecognized error when summarizing message ${index}: ${e}`)
+                }
+            }
+            result = null
+        }
+
+        if (result) {
+            debug("Message summarized: ", result)
+
+    // stick the prefill on the front and try to parse reasoning
+    //        let prefill = get_settings('prefill')
+    //        let prefilled_summary = summary
+    //        if (prefill) {
+    //            prefilled_summary = `${prefill}${summary}`
+    //        }
+
+    //        let parsed_reasoning_object = context.parseReasoningFromString(prefilled_summary)
+    //        let reasoning = "";
+    //        if (parsed_reasoning_object?.reasoning) {
+    //            debug("Reasoning parsed: ")
+    //            debug(parsed_reasoning_object)
+    //            reasoning = parsed_reasoning_object.reasoning  // reasoning with prefill
+    //            summary = parsed_reasoning_object.content  // summary (no prefill)
+    //        }
+
+            // The summary that is stored is WITHOUT the prefill, regardless of whether there was reasoning.
+            // If there is reasoning, it will be stored with the prefill and the prefill will be empty
+
+            set_data(message, 'memory', result.content);
+            set_data(message, 'hash', message_hash);  // store the hash of the message that we just summarized
+            set_data(message, 'error', null);  // clear the error message
+            set_data(message, 'edited', false);  // clear the error message
+            set_data(message, 'prefill', result.reasoning ? "" : get_settings('prefill'))  // store prefill if there was no reasoning.
+            set_data(message, 'reasoning', result.reasoning)
+        } else {  // generation failed
+            error(`Failed to summarize message ${index}: ${err}`);
+            set_data(message, 'error', err || "Summarization failed");  // store the error message
+            set_data(message, 'memory', null);  // clear the memory if generation failed
+            set_data(message, 'edited', false);  // clear the error message
+            set_data(message, 'prefill', null)
+            set_data(message, 'reasoning', null)
+        }
+
+        // update the message summary text again now with the memory, still no styling
+        this.update_message_visuals(index)
+
+        // If the most recent message, scroll to the bottom again (summary may have pushed the bottom down a bit).
+        if (index === chat.length - 1) {
+            scrollChatToBottom()
+        }
+    }
+
+    async summarize_text(messages, profile) {
+        let ctx = getContext()
+
+        // get size of text
+        let token_size = messages.reduce((acc, p) => acc + count_tokens(p.content), 0);
+
+        let context_size = get_context_size();
+        if (token_size > context_size) {
+            error(`Text (${token_size}) exceeds context size (${context_size}).`);
+        }
+
+        let result = await ctx.ConnectionManagerRequestService.sendRequest(profile, messages)
+
+        // trim incomplete sentences if set in ST settings
+        if (ctx.powerUserSettings.trim_sentences) {
+            result.content = trimToEndSentence(result.content);
+        }
+
+        return result;
+    }
+}
 
 
 // Message functions
@@ -3324,7 +3458,7 @@ async function remember_message_toggle(indexes=null, value=null) {
 
     // summarize any messages that have no summary
     if (summarize.length > 0) {
-        await summarize_messages(summarize);
+        await summaryQueue.summarize(summarize);
     }
     refresh_memory();
 }
@@ -3480,7 +3614,7 @@ function update_message_inclusion_flags() {
                     short_limit_reached = true;
                 } else {  // under context limit
                     set_data(message, 'include', 'short');
-                    short_token_size = new_short_token_size
+                    if (!lagging) short_token_size = new_short_token_size  // only count toward the context limit if not lagging
                     continue
                 }
             }
@@ -3619,210 +3753,6 @@ globalThis.memory_intercept_messages = function (chat, _contextSize, _abort, typ
 
 
 // Summarization
-async function summarize_messages(indexes=null, show_progress=true, skip_initial_delay=true) {
-    // Summarize the given list of message indexes (or a single index)
-    let ctx = getContext();
-
-    if (indexes === null) {  // default to the mose recent message, min 0
-        indexes = [Math.max(chat.length - 1, 0)]
-    }
-    indexes = Array.isArray(indexes) ? indexes : [indexes]  // cast to array if only one given
-    if (!indexes.length) return;
-
-    debug(`Summarizing ${indexes.length} messages`)
-
-     // only show progress if there's more than one message to summarize
-    show_progress = show_progress && indexes.length > 1;
-
-    // set stop flag to false just in case
-    STOP_SUMMARIZATION = false
-
-    // optionally block user from sending chat messages while summarization is in progress
-    if (get_settings('block_chat')) {
-        ctx.deactivateSendButtons();
-    }
-
-    // Save the current completion preset (must happen before you set the connection profile because it changes the preset)
-    let summary_preset = get_settings('completion_preset');
-    let current_preset = await get_current_preset();
-
-    // Get the current connection profile
-    let summary_profile = get_settings('connection_profile');
-    let current_profile = await get_current_connection_profile()
-
-    // set the completion preset and connection profile for summarization (preset must be set after connection profile)
-    await set_connection_profile(summary_profile);
-    await set_preset(summary_preset);
-
-    let n = 0;
-    for (let i of indexes) {
-        if (show_progress) progress_bar('summarize', n+1, indexes.length, "Summarizing");
-
-        // check if summarization was stopped by the user
-        if (STOP_SUMMARIZATION) {
-            log('Summarization stopped');
-            break;
-        }
-
-        // Wait for time delay if set (only delay first if initial delay set)
-        let time_delay = get_settings('summarization_time_delay')
-        if (time_delay > 0 && (n > 0 || (n === 0 && !skip_initial_delay))) {
-            debug(`Delaying generation by ${time_delay} seconds`)
-            if (show_progress) progress_bar('summarize', null, null, "Delaying")
-            await new Promise((resolve) => {
-                SUMMARIZATION_DELAY_TIMEOUT = setTimeout(resolve, time_delay * 1000)
-                SUMMARIZATION_DELAY_RESOLVE = resolve  // store the resolve function to call when cleared
-            });
-
-            // check if summarization was stopped by the user during the delay
-            if (STOP_SUMMARIZATION) {
-                log('Summarization stopped');
-                break;
-            }
-        }
-
-        await summarize_message(i);
-        n += 1;
-    }
-
-
-    // restore the completion preset and connection profile
-    await set_connection_profile(current_profile);
-    await set_preset(current_preset);
-
-    // remove the progress bar
-    if (show_progress) remove_progress_bar('summarize')
-
-    if (STOP_SUMMARIZATION) {  // check if summarization was stopped
-        STOP_SUMMARIZATION = false  // reset the flag
-    } else {
-        debug(`Messages summarized: ${indexes.length}`)
-    }
-
-    if (get_settings('block_chat')) {
-        ctx.activateSendButtons();
-    }
-
-    refresh_memory()
-
-    // Update the memory state interface if it's open
-    memoryEditInterface.update_table()
-}
-async function summarize_message(index) {
-    // Summarize a message given the chat index, replacing any existing memories
-    // Should only be used from summarize_messages()
-
-    let context = getContext();
-    let message = context.chat[index]
-    let message_hash = getStringHash(message.mes);
-
-    // clear the reasoning early to avoid showing it when summarizing
-    set_data(message, 'reasoning', "")
-
-    // Temporarily update the message summary text to indicate that it's being summarized (no styling based on inclusion criteria)
-    // A full visual update with style should be done on the whole chat after inclusion criteria have been recalculated
-    update_message_visuals(index, false, "Summarizing...")
-    memoryEditInterface.update_message_visuals(index, null, false, "Summarizing...")
-
-    // If the most recent message, scroll to the bottom to get the summary in view (affected by ST settings)
-    if (index === chat.length - 1) {
-        scrollChatToBottom();
-    }
-
-    // construct the full summary prompt for the message
-    let prompt = await summaryPromptEditInterface.create_summary_prompt(index)
-
-    // summarize it
-    let summary;
-    let err = null;
-    try {
-        debug(`Summarizing message ${index}...`)
-        summary = await summarize_text(prompt)
-    } catch (e) {
-        if (e === "Clicked stop button") {  // summarization was aborted
-            err = "Summarization aborted"
-        } else {
-            err = e.message
-            if (e.message === "No message generated") {
-                err = "Empty Response"
-            } else {
-                error(`Unrecognized error when summarizing message ${index}: ${e}`)
-            }
-        }
-        summary = null
-    }
-
-    if (summary) {
-        debug("Message summarized: " + summary)
-
-        // stick the prefill on the front and try to parse reasoning
-        let prefill = get_settings('prefill')
-        let prefilled_summary = summary
-        if (prefill) {
-            prefilled_summary = `${prefill}${summary}`
-        }
-
-        let parsed_reasoning_object = context.parseReasoningFromString(prefilled_summary)
-        let reasoning = "";
-        if (parsed_reasoning_object?.reasoning) {
-            debug("Reasoning parsed: ")
-            debug(parsed_reasoning_object)
-            reasoning = parsed_reasoning_object.reasoning  // reasoning with prefill
-            summary = parsed_reasoning_object.content  // summary (no prefill)
-        }
-
-        // The summary that is stored is WITHOUT the prefill, regardless of whether there was reasoning.
-        // If there is reasoning, it will be stored with the prefill and the prefill will be empty
-
-        set_data(message, 'memory', summary);
-        set_data(message, 'hash', message_hash);  // store the hash of the message that we just summarized
-        set_data(message, 'error', null);  // clear the error message
-        set_data(message, 'edited', false);  // clear the error message
-        set_data(message, 'prefill', reasoning ? "" : get_settings('prefill'))  // store prefill if there was no reasoning.
-        set_data(message, 'reasoning', reasoning)
-    } else {  // generation failed
-        error(`Failed to summarize message ${index}: ${err}`);
-        set_data(message, 'error', err || "Summarization failed");  // store the error message
-        set_data(message, 'memory', null);  // clear the memory if generation failed
-        set_data(message, 'edited', false);  // clear the error message
-        set_data(message, 'prefill', null)
-        set_data(message, 'reasoning', null)
-    }
-
-    // update the message summary text again now with the memory, still no styling
-    update_message_visuals(index, false)
-    memoryEditInterface.update_message_visuals(index, null, false, true)
-
-    // If the most recent message, scroll to the bottom
-    if (index === chat.length - 1) {
-        scrollChatToBottom()
-    }
-}
-async function summarize_text(messages) {
-    let ctx = getContext()
-
-    // get size of text
-    let token_size = messages.reduce((acc, p) => acc + count_tokens(p.content), 0);
-
-    let context_size = get_context_size();
-    if (token_size > context_size) {
-        error(`Text (${token_size}) exceeds context size (${context_size}).`);
-    }
-
-    // prompt, api, instructOverride, systemMode, systemPrompt, responseLength, trimNames, prefill
-    let result = await generateRaw({
-        prompt: messages,
-        trimNames: false,
-        prefill: get_settings('prefill')
-    });
-
-    // trim incomplete sentences if set in ST settings
-    if (ctx.powerUserSettings.trim_sentences) {
-        result = trimToEndSentence(result);
-    }
-
-    return result;
-}
 function refresh_memory() {
     let ctx = getContext();
     if (!chat_enabled()) { // if chat not enabled, remove the injections
@@ -3857,15 +3787,6 @@ function refresh_memory() {
 }
 const refresh_memory_debounced = debounce(refresh_memory, debounce_timeout.relaxed);
 
-function stop_summarization() {
-    // Immediately stop summarization of the chat
-    STOP_SUMMARIZATION = true  // set the flag
-    let ctx = getContext()
-    ctx.stopGeneration();  // stop generation on current message
-    clearTimeout(SUMMARIZATION_DELAY_TIMEOUT)  // clear the summarization delay timeout
-    if (SUMMARIZATION_DELAY_RESOLVE !== null) SUMMARIZATION_DELAY_RESOLVE()  // resolve the delay promise so the await goes through
-    log("Aborted summarization.")
-}
 function collect_messages_to_auto_summarize() {
     // iterate through the chat in chronological order and check which messages need to be summarized.
     let context = getContext();
@@ -3926,7 +3847,7 @@ async function auto_summarize_chat(skip_initial_delay=true) {
     }
 
     let show_progress = get_settings('auto_summarize_progress');
-    await summarize_messages(messages_to_summarize, show_progress, skip_initial_delay);
+    await summaryQueue.summarize(messages_to_summarize, skip_initial_delay, show_progress);
 }
 
 // Event handling
@@ -3973,7 +3894,7 @@ async function on_chat_event(event=null, data=null) {
             index = context.chat.length - 1
             if (last_message_swiped === index) break;  // this is a swipe, skip
             debug("Summarizing chat before message")
-            await auto_summarize_chat();  // auto-summarize the chat
+            await auto_summarize_chat(true);  // auto-summarize the chat
             break;
 
         case 'user_message':
@@ -3985,7 +3906,7 @@ async function on_chat_event(event=null, data=null) {
             // Summarize the chat if "include_user_messages" is enabled
             if (get_settings('include_user_messages')) {
                 debug("New user message detected, summarizing")
-                await auto_summarize_chat();  // auto-summarize the chat (checks for exclusion criteria and whatnot)
+                await auto_summarize_chat(true);  // auto-summarize the chat (checks for exclusion criteria and whatnot)
             }
 
             break;
@@ -3995,14 +3916,13 @@ async function on_chat_event(event=null, data=null) {
             if (!context.groupId && context.characterId === undefined) break; // no characters or group selected
             if (streamingProcessor && !streamingProcessor.isFinished) break;  // Streaming in-progress
 
-            let skip_first_delay = get_settings('summarization_time_delay_skip_first')
             if (last_message_swiped === index) {  // this is a swipe
                 let message = context.chat[index];
                 if (!get_settings('auto_summarize_on_swipe')) break;  // if auto-summarize on swipe is disabled, do nothing
                 if (!check_message_exclusion(message)) break;  // if the message is excluded, skip
                 if (!get_previous_swipe_memory(message, 'memory')) break;  // if the previous swipe doesn't have a memory, skip
                 debug("re-summarizing on swipe")
-                await summarize_messages(index, true, skip_first_delay);  // summarize the swiped message
+                await summaryQueue.add(index, false);  // summarize the swiped message
                 refresh_memory()
             } else if (last_message === index) {  // not a swipe, but the same index as last message - must be a continue
                 last_message_swiped = null
@@ -4010,14 +3930,14 @@ async function on_chat_event(event=null, data=null) {
                 if (!get_settings("auto_summarize_on_continue")) break;  // if auto_summarize_on_continue is disabled, no nothing
                 if (!get_memory(message, 'memory')) break;  // if the message doesn't have a memory, skip.
                 debug("re-summarizing on continue")
-                await summarize_messages(index, true, skip_first_delay);  // summarize the swiped message
+                await summaryQueue.add(index, false);  // summarize the swiped message
                 refresh_memory()
             } else { // not a swipe or continue
                 last_message_swiped = null
                 if (!get_settings('auto_summarize')) break;  // if auto-summarize is disabled, do nothing
                 if (get_settings("auto_summarize_on_send")) break;  // if auto_summarize_on_send is enabled, don't auto-summarize on character message
                 debug("New message detected, summarizing")
-                await auto_summarize_chat(skip_first_delay);  // auto-summarize the chat, skipping first delay if needed
+                await auto_summarize_chat(false);  // auto-summarize the chat,
             }
             last_message = index;
             break;
@@ -4029,7 +3949,7 @@ async function on_chat_event(event=null, data=null) {
             if (!check_message_exclusion(context.chat[index])) break;  // if the message is excluded, skip
             if (!get_data(context.chat[index], 'memory')) break;  // if the message doesn't have a memory, skip
             debug("Message with memory edited, summarizing")
-            summarize_messages(index);  // summarize that message (no await so the message edit goes through)
+            summaryQueue.summarize(index);  // summarize that message (no await so the message edit goes through)
 
             // TODO: I'd like to be able to refresh the memory here, but we can't await the summarization because
             //  then the message edit textbox doesn't close until the summary is done.
@@ -4085,7 +4005,7 @@ function initialize_settings_listeners() {
     bind_function('#chat_profile', () => toggle_chat_profile());
     bind_setting('#notify_on_profile_switch', 'notify_on_profile_switch', 'boolean')
 
-    bind_function('#stop_summarization', stop_summarization);
+    bind_function('#stop_summarization', summaryQueue.stop);
     bind_function('#revert_settings', reset_settings);
 
     bind_function('#toggle_chat_memory', () => toggle_chat_enabled(), false);
@@ -4113,7 +4033,6 @@ function initialize_settings_listeners() {
     })
 
     bind_setting('#connection_profile', 'connection_profile', 'text')
-    bind_setting('#completion_preset', 'completion_preset', 'text')
     bind_setting('#auto_summarize', 'auto_summarize', 'boolean');
     bind_setting('#auto_summarize_on_edit', 'auto_summarize_on_edit', 'boolean');
     bind_setting('#auto_summarize_on_swipe', 'auto_summarize_on_swipe', 'boolean');
@@ -4122,6 +4041,7 @@ function initialize_settings_listeners() {
     bind_setting('#auto_summarize_message_limit', 'auto_summarize_message_limit', 'number');
     bind_setting('#auto_summarize_progress', 'auto_summarize_progress', 'boolean');
     bind_setting('#auto_summarize_on_send', 'auto_summarize_on_send', 'boolean');
+    bind_setting('#parallel_summaries_count', 'parallel_summaries_count', 'number');
     bind_setting('#summarization_delay', 'summarization_delay', 'number');
     bind_setting('#summarization_time_delay', 'summarization_time_delay', 'number')
     bind_setting('#summarization_time_delay_skip_first', 'summarization_time_delay_skip_first', 'boolean')
@@ -4194,7 +4114,7 @@ function initialize_message_buttons() {
     $chat.on("click", `.${summarize_button_class}`, async function () {
         const message_block = $(this).closest(".mes");
         const message_id = Number(message_block.attr("mesid"));
-        await summarize_messages(message_id);  // summarize the message
+        summaryQueue.summarize(message_id);  // summarize the message
     });
     $chat.on("click", `.${edit_button_class}`, async function () {
         const message_block = $(this).closest(".mes");
@@ -4499,8 +4419,7 @@ function initialize_slash_commands() {
         aliases: ['qvink-memory-summarize'],
         callback: async (args, index) => {
             if (index === "") index = null  // if not provided the index is an empty string, but we need it to be null to get the default behavior
-            await summarize_messages(index);  // summarize the message
-            refresh_memory();
+            await summaryQueue.summarize(index);  // summarize the message
             return "";
         },
         helpString: 'Summarize the given message index (defaults to most recent applicable message).',
@@ -4519,7 +4438,7 @@ function initialize_slash_commands() {
         helpString: 'Summarize the chat using the auto-summarization criteria, even if auto-summarization is off.',
         callback: async (args, limit) => {
             let indexes = collect_messages_to_auto_summarize();
-            await summarize_messages(indexes);
+            await summaryQueue.summarize(indexes);
             return ""
         },
     }));
@@ -4528,7 +4447,7 @@ function initialize_slash_commands() {
         name: 'qm-stop-summarization',
         aliases: ['qvink-memory-stop-summarization'],
         callback: (args) => {
-            stop_summarization();
+            summaryQueue.stop();
             return "";
         },
         helpString: 'Abort any summarization taking place.',
@@ -4538,9 +4457,9 @@ function initialize_slash_commands() {
         name: 'qm-max-summary-tokens',
         aliases: ['qvink-memory-max-summary-tokens'],
         callback: async (args) => {
-            return String(await get_summary_preset_max_tokens());
+            return String(get_profile_max_tokens());
         },
-        helpString: 'Return the max tokens allowed for summarization given the current completion preset.'
+        helpString: 'Return the max tokens allowed for summarization given the summary connection profile.'
     }));
 
 }
@@ -4645,7 +4564,8 @@ function toggle_popout() {
 
 // Entry point
 let memoryEditInterface;
-let summaryPromptEditInterface
+let summaryPromptEditInterface;
+let summaryQueue;
 jQuery(async function () {
     log(`Loading extension...`)
 
@@ -4658,8 +4578,9 @@ jQuery(async function () {
     initialize_settings();
 
     // initialize interfaces
-    memoryEditInterface = new MemoryEditInterface()
-    summaryPromptEditInterface = new SummaryPromptEditInterface()
+    memoryEditInterface = new MemoryEditInterface();
+    summaryPromptEditInterface = new SummaryPromptEditInterface();
+    summaryQueue = new SummaryQueue();
 
     // load settings html
     await load_settings_html();
@@ -4671,7 +4592,7 @@ jQuery(async function () {
     initialize_group_member_buttons();
     initialize_slash_commands();
     initialize_menu_buttons();
-    add_i18n()
+    add_i18n();
 
     // ST event listeners
     let ctx = getContext();
@@ -4683,11 +4604,11 @@ jQuery(async function () {
     eventSource.on(event_types.MESSAGE_EDITED, (id) => on_chat_event('message_edited', id));
     eventSource.on(event_types.MESSAGE_SWIPED, (id) => on_chat_event('message_swiped', id));
     eventSource.on(event_types.CHAT_CHANGED, () => on_chat_event('chat_changed'));
-    eventSource.on(event_types.MORE_MESSAGES_LOADED, refresh_memory)
-    eventSource.on('groupSelected', set_character_enabled_button_states)
-    eventSource.on(event_types.GROUP_UPDATED, set_character_enabled_button_states)
+    eventSource.on(event_types.MORE_MESSAGES_LOADED, refresh_memory);
+    eventSource.on('groupSelected', set_character_enabled_button_states);
+    eventSource.on(event_types.GROUP_UPDATED, set_character_enabled_button_states);
     eventSource.on(event_types.SETTINGS_UPDATED, refresh_settings)  // refresh extension settings when ST settings change
-    eventSource.on(event_types.GENERATION_STARTED, (type, stuff, dry) => on_chat_event('before_message', {'type': type, 'dry': dry}))
+    eventSource.on(event_types.GENERATION_STARTED, (type, stuff, dry) => on_chat_event('before_message', {'type': type, 'dry': dry}));
 
     // Global Macros
     MacrosParser.registerMacro(short_memory_macro, () => get_short_memory());

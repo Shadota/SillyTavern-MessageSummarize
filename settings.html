@@ -65,14 +65,7 @@
                         <td><select id="connection_profile" class="text_pole"></select></td>
                     </tr>
 
-                    <tr title="The completion preset to use for summaries. Note that choosing a different preset will require temporarily switching to that preset during summarization, discarding any unsaved changes to the current preset. Also be aware that presets are not shared between connection APIs.">
-                        <td><span>Completion Preset</span></td>
-                        <td><select id="completion_preset" class="text_pole"></select></td>
-                    </tr>
-
                 </table>
-
-                <hr>
 
                 <label title="Editing a message will trigger a re-summarization if it has already been summarized." class="checkbox_label">
                     <input id="auto_summarize_on_edit" type="checkbox" />
@@ -92,6 +85,11 @@
                 <label title="Block chat input while summarizing." class="checkbox_label">
                     <input id="block_chat" type="checkbox" />
                     <span>Block Chat</span>
+                </label>
+
+                <label class="checkbox_label" title="Number of API requests to send in parallel (1 = strictly sequential). Some APIs may not support more than 1 at a time.">
+                    <input id="parallel_summaries_count" class="text_pole widthUnset inline_setting" type="number" min="1" max="999" />
+                    <span>Parallel summaries</span>
                 </label>
 
                 <div class="flex-container justifyspacebetween alignitemscenter">
