@@ -2657,7 +2657,7 @@ class SummaryPromptEditInterface {
         // set the interface from settings
         this.$prompt?.val(get_settings('prompt'))
         this.$prompt_role?.val(get_settings('prompt_role'))
-        this.$prefill?.val(get_settings('prefill'))
+        this.$prefill?.val(escape_string(get_settings('prefill')))
         this.$show_prefill?.prop('checked', get_settings('show_prefill', true))
         this.macros = get_settings('summary_prompt_macros', true)
 
@@ -2677,7 +2677,7 @@ class SummaryPromptEditInterface {
         // save settings in the interface
         set_settings('prompt', this.$prompt.val())  // save the prompt
         set_settings('prompt_role', Number(this.$prompt_role.val()))
-        set_settings('prefill', this.$prefill.val())
+        set_settings('prefill', unescape_string(this.$prefill.val()))
         set_settings('show_prefill', this.$show_prefill.is(':checked'))
         set_settings('summary_prompt_macros', this.macros, true)
         update_all_message_visuals()
@@ -2701,7 +2701,7 @@ class SummaryPromptEditInterface {
         return role
     }
     get_prefill() {
-        return this.is_open() ? this.$prefill.val() : get_settings('prefill')
+        return this.is_open() ? unescape_string(this.$prefill.val()) : get_settings('prefill')
     }
     get_unique_name(name) {
         // if the given name isn't unique, make it unique
