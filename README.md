@@ -273,7 +273,6 @@ You can revert settings to default by scrolling to the bottom of the config and 
 8. Any errors in the browser console or ST terminal (you can access your console with F12 in most browsers). These can be included in the steps from #7.
 
 ### Known Issues
-- When editing a message that already has a memory, the memory displayed below the message does not have the right color. This is just a visual bug, and it will correct itself after the next summarization.
 - Using the API tokenizer may cause lag when opening chats under certain circumstances, cause currently unknown.
 - Incompatible with the NoAss extension when using chat completion endpoints.
 

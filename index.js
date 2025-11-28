@@ -888,7 +888,7 @@ async function update_connection_profile_dropdown() {
         $connection_select.append(`<option value="${profile.id}">${profile.name}</option>`)
     }
 
-    let profile_id = get_summary_connection_profile()
+    let profile_id = get_settings('connection_profile')
     if (!verify_connection_profile(profile_id)) {
         toast_debounced(`Selected summary connection profile ID is invalid: ${ID}`, "warning")
         profile_id = ""  // fall back to "same as current"
@@ -3922,7 +3922,7 @@ async function on_chat_event(event=null, data=null) {
                 if (!check_message_exclusion(message)) break;  // if the message is excluded, skip
                 if (!get_previous_swipe_memory(message, 'memory')) break;  // if the previous swipe doesn't have a memory, skip
                 debug("re-summarizing on swipe")
-                await summaryQueue.add(index, false);  // summarize the swiped message
+                await summaryQueue.summarize(index, false);  // summarize the swiped message
                 refresh_memory()
             } else if (last_message === index) {  // not a swipe, but the same index as last message - must be a continue
                 last_message_swiped = null
@@ -3930,7 +3930,7 @@ async function on_chat_event(event=null, data=null) {
                 if (!get_settings("auto_summarize_on_continue")) break;  // if auto_summarize_on_continue is disabled, no nothing
                 if (!get_memory(message, 'memory')) break;  // if the message doesn't have a memory, skip.
                 debug("re-summarizing on continue")
-                await summaryQueue.add(index, false);  // summarize the swiped message
+                await summaryQueue.summarize(index, false);  // summarize the swiped message
                 refresh_memory()
             } else { // not a swipe or continue
                 last_message_swiped = null
@@ -3949,11 +3949,7 @@ async function on_chat_event(event=null, data=null) {
             if (!check_message_exclusion(context.chat[index])) break;  // if the message is excluded, skip
             if (!get_data(context.chat[index], 'memory')) break;  // if the message doesn't have a memory, skip
             debug("Message with memory edited, summarizing")
-            summaryQueue.summarize(index);  // summarize that message (no await so the message edit goes through)
-
-            // TODO: I'd like to be able to refresh the memory here, but we can't await the summarization because
-            //  then the message edit textbox doesn't close until the summary is done.
-
+            summaryQueue.summarize(index);  // summarize that message (no await so the edit textarea closes)
             break;
 
         case 'message_swiped':  // when this event occurs, don't summarize yet (a new_message event will follow)
