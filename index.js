@@ -1380,7 +1380,7 @@ function update_message_visuals(i, style=true, text=null) {
             text = clean_string_for_html(`Memory: ${memory}`)
         } else if (error_message) {
             style_class = ''  // clear the style class if there's an error
-            text = `Error: ${error_message}`
+            text = `Failed: "${error_message}"`
         }
     }
 
@@ -3046,7 +3046,11 @@ class SummaryPromptEditInterface {
             }
         }
 
-        messages.push({content: "\n"+this.get_prefill(), role: 'assistant'})
+        let prefill = this.get_prefill()
+        if (prefill) {
+            messages.push({content: prefill, role: 'assistant'})
+        }
+
         return messages
     }
 }
@@ -3102,7 +3106,9 @@ class SummaryQueue {
         // Wait for all summaries to complete
         this.run();  // attempt to run the queue, resolving each task as they complete
         for (let promise of promises) {
-            await promise.catch(result => debug("Aborted summarization promise"));
+            await promise.catch(result => {
+                error(`Aborted summarization promise. Error: ${result}`);
+            })
         }
 
         // If we have completed all tasks, clear flags and whatnot
@@ -3245,44 +3251,24 @@ class SummaryQueue {
             if (e === "Clicked stop button") {  // summarization was aborted
                 err = "Summarization aborted"
             } else {
-                err = e.message
-                if (e.message === "No message generated") {
-                    err = "Empty Response"
-                } else {
-                    error(`Unrecognized error when summarizing message ${index}: ${e}`)
-                }
+                err = String(e.cause || e.message || e)
             }
             result = null
         }
 
         if (result) {
+            let prefill = get_settings('prefill')
             debug("Message summarized: ", result)
-
-    // stick the prefill on the front and try to parse reasoning
-    //        let prefill = get_settings('prefill')
-    //        let prefilled_summary = summary
-    //        if (prefill) {
-    //            prefilled_summary = `${prefill}${summary}`
-    //        }
-
-    //        let parsed_reasoning_object = context.parseReasoningFromString(prefilled_summary)
-    //        let reasoning = "";
-    //        if (parsed_reasoning_object?.reasoning) {
-    //            debug("Reasoning parsed: ")
-    //            debug(parsed_reasoning_object)
-    //            reasoning = parsed_reasoning_object.reasoning  // reasoning with prefill
-    //            summary = parsed_reasoning_object.content  // summary (no prefill)
-    //        }
 
             // The summary that is stored is WITHOUT the prefill, regardless of whether there was reasoning.
             // If there is reasoning, it will be stored with the prefill and the prefill will be empty
-
             set_data(message, 'memory', result.content);
             set_data(message, 'hash', message_hash);  // store the hash of the message that we just summarized
             set_data(message, 'error', null);  // clear the error message
             set_data(message, 'edited', false);  // clear the error message
-            set_data(message, 'prefill', result.reasoning ? "" : get_settings('prefill'))  // store prefill if there was no reasoning.
+            set_data(message, 'prefill', prefill)
             set_data(message, 'reasoning', result.reasoning)
+            parse_reasoning(message, result.content, result.reasoning, prefill)
         } else {  // generation failed
             error(`Failed to summarize message ${index}: ${err}`);
             set_data(message, 'error', err || "Summarization failed");  // store the error message
@@ -3322,6 +3308,30 @@ class SummaryQueue {
         return result;
     }
 }
+function parse_reasoning(message, summary=null, reasoning=null, prefill=null) {
+    reasoning = reasoning ?? get_data(message, 'reasoning')
+    if (reasoning) return  // already parsed
+    prefill = prefill ?? get_data(message, 'prefill')
+    summary = summary ?? get_data(message, 'memory')
+
+    // stick the prefill on the front and try to parse reasoning
+    let profile_id = get_summary_connection_profile()
+    let profile_data = get_connection_profile(profile_id)
+    let template_name = profile_data["reasoning-template"]
+    if (!template_name) {
+        debug("No reasoning template specified in profile")
+        return
+    }
+
+    let parsed = getContext().parseReasoningFromString(`${prefill ?? ''}${summary}`, {template: template_name});
+    if (!parsed?.reasoning) return;  // no reasoning
+
+    // If we parsed reasoning, update the message
+    set_data(message, 'memory', parsed.content);
+    set_data(message, 'reasoning', parsed.reasoning);
+    set_data(message, 'prefill', null);  // prefill has been included in the reasoning
+    debug("Parsed reasoning: ", parsed)
+}
 
 
 // Message functions
@@ -3357,10 +3367,10 @@ function get_data(message, key) {
 function get_memory(message) {
     // returns the memory properly prepended with the prefill (if present)
     let memory = get_data(message, 'memory') ?? ""
-    let prefill = get_data(message, 'prefill') ?? ""
 
     // prepend the prefill to the memory if needed
     if (get_settings('show_prefill')) {
+        let prefill = get_data(message, 'prefill') ?? ""
         memory = `${prefill}${memory}`
     }
     return memory
