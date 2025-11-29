@@ -337,7 +337,7 @@ function get_regex_script(name) {
 }
 function add_i18n($element=null) {
     // dynamically translate config settings
-    log("Translating with i18n...")
+    debug("Translating with i18n...")
     if ($element === null) {
         $element = $(`.${settings_content_class}`)
     }
@@ -3313,6 +3313,7 @@ function parse_reasoning(message, summary=null, reasoning=null, prefill=null) {
     if (reasoning) return  // already parsed
     prefill = prefill ?? get_data(message, 'prefill')
     summary = summary ?? get_data(message, 'memory')
+    let ctx = getContext()
 
     // stick the prefill on the front and try to parse reasoning
     let profile_id = get_summary_connection_profile()
@@ -3322,8 +3323,8 @@ function parse_reasoning(message, summary=null, reasoning=null, prefill=null) {
         debug("No reasoning template specified in profile")
         return
     }
-
-    let parsed = getContext().parseReasoningFromString(`${prefill ?? ''}${summary}`, {template: template_name});
+    let template = ctx.getReasoningTemplateByName(template_name)
+    let parsed = ctx.parseReasoningFromString(`${prefill ?? ''}${summary}`, {}, template);
     if (!parsed?.reasoning) return;  // no reasoning
 
     // If we parsed reasoning, update the message
