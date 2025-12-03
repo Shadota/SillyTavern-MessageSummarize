@@ -1203,8 +1203,7 @@ async function delete_profile() {
     set_settings('profiles', profiles);
     toast(`Deleted Configuration Profile: \"${profile}\"`, "success");
 
-    // remove any references to this profile connected to characters or chats
-    // TODO currently can't remove references from chats since that now uses chat metadata
+    // remove any references to this profile connected to characters
     let character_profiles = get_settings('character_profiles')
     for (let [id, name] of Object.entries(character_profiles)) {
         if (name === profile) {
@@ -1213,13 +1212,9 @@ async function delete_profile() {
     }
     set_settings('character_profiles', character_profiles)
 
-    // let chat_profiles = get_settings('chat_profiles')
-    // for (let [id, name] of Object.entries(chat_profiles)) {
-    //     if (name === profile) {
-    //         delete chat_profiles[id]
-    //     }
-    // }
-    // set_settings('chat_profiles', chat_profiles)
+    // remove any references to this profile connected to chats
+    // TODO currently can't remove references from chats since that now is now stored in the chat metadata
+    //  and there isn't currently a way to access other chats' metadata.
 
     auto_load_profile()
 }

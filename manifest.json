@@ -3,7 +3,7 @@
     "loading_order": 1,
     "requires": [],
     "optional": [],
-    "minimum_client_version": "1.13.5",
+    "minimum_client_version": "1.14.0",
     "js": "index.js",
     "css": "style.css",
     "author": "qvink",

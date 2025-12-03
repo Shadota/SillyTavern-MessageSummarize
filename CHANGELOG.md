@@ -1,11 +1,13 @@
 # Changelog
 
 #### v1.3.0
-- **IMPORTANT**: Your summary `Completion Preset` is now entirely determined by the `Connection Profile`. If you previously had a `Completion Preset` configured for summaries, you will need to make sure that your `Connection Profile` specifies it instead.
-- **New Feature**: `Connection Profiles` are now used for summaries **without switching** back and forth.
+**ST Version Requirement**: You must be on ST v1.14.0 (relies on [this PR](https://github.com/SillyTavern/SillyTavern/pull/4841))\
+**IMPORTANT**: Your summary `Completion Preset` is now entirely determined by the `Connection Profile`. If you previously had a `Completion Preset` configured for summaries, you will need to make sure that your `Connection Profile` specifies it instead.
+- **New Feature**: `Connection Profiles` are now used for summaries **without switching** back and forth. 
 - **New Feature**: Parallel API requests now supported, configured by the `Parallel Summaries` setting.
 - **Removed**: You can no longer configure a separate `Completion Preset` for summaries (it is instead determined by the `Connection Profile`).
 - **Fixed**: Fixed case where short-term messages would be included in the short-term context size calculation even if they were not injected due to injection delay.
+- **Fixed**: Properly escapes special characters in summary prefill.
 
 #### v1.2.16
 - **ST Version Requirement**: You must be on ST v1.13.5
@@ -14,7 +16,7 @@
 - **Fixed** Fixing lag issues when using high context for memory injection
 
 #### v1.2.7
-**ST Version Requirement**: You must be on ST v1.13.2
+**ST Version Requirement**: You must be on ST v1.13.2\
 **IMPORTANT**: Any profiles locked to specific chats (not characters) will need to be re-locked.
 - **Fixed** Locking profiles to a chat now persist after branching.
 - **Fixed** Fixed double summary in group chats
@@ -32,8 +34,7 @@
 - **Fixed**: Fixed auto-summarize not working after closing and re-opening the same chat.
 
 #### v1.0.8
-**IMPORTANT 1**: All slash commands, CSS variables, and macros have been renamed for consistency. You will need to update any QRs, custom CSS, or prompts that use these.
-
+**IMPORTANT 1**: All slash commands, CSS variables, and macros have been renamed for consistency. You will need to update any QRs, custom CSS, or prompts that use these.\
 **IMPORTANT 2**: Your current `{{history}}` macro may no longer work as it did before. You will need to reconfigure it in the new interface by clicking "Edit" under "Summarization"
 
 - **New Feature**: Reworked "Edit" interface for the summary prompt. This is now where the `{{history}}`, `{{message}}`, and `{{words}}` macro are defined and modified. You can also create custom macros for the summary prompt using either a message range or STScript.

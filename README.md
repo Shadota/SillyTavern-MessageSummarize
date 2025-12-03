@@ -12,7 +12,7 @@
 - [Known Issues](#known-issues)
 
 ### Version Requirement
-Requires ST v1.13.5 or above.
+Requires ST v1.14.0 or above.
 
 ### Description
 - This extension is an alternative to the built-in `Summarize` extension, reworking how memory is stored by summarizing each message individually, rather than all at once.
@@ -151,7 +151,9 @@ Try them out if you want.
 - **Keep it simple**: Longer summary prompts tend to muddy the waters and get less accurate results. Just in general LLMs have trouble with information overload (hence the reason for this extension in the first place).
 
 
-- **Low temperature**: I like to use a temp of 0 to reduce creativity and just get down to the facts. No need for flowery language.
+- **Low temperature**: I like to use a temp of 0 to reduce creativity and just get down to the facts. No need for flowery language. 
+To do this, create a new connection profile that you will use for summaries. 
+Connection profiles can specify things like instruct templates and completion presets, and that's how you specify parameters like temperature and max_tokens.
 
 
 - **No repetition penalty**: Again, no need for creativity, in fact I want it to repeat what happened.
@@ -170,9 +172,6 @@ Try them out if you want.
 
 
 - **Custom Macros**: In the `Edit` window for your summary prompt, you can create custom macros to use in your prompt with STScript. In your command, you can reference the ID of the message being summarized with `{{id}}` and the content of the message with `{{message}}`.
-
-
-- **Save your presets**: If you are using a different completion preset or connection profile for summaries, make sure to save any changes to your regular completion preset or instruct template. When summarizing, the extension has to temporarily switch presets or connection profiles, which will discard any unsaved changes to the one you are currently using.
 
 
 - **Cloud Models are Picky**: Cloud APIs tend to have strict rules about how their prompts are constructed, so you may need to adjust things when creating your prompt. For example, some models have heavy filters enabled for `User` roles messages, and may work better with `System` messages. Some cloud models don't support `System` messages at all, so you would need to use `User`. You will need to experiment, or read up on what your particular cloud model expects.
