@@ -129,7 +129,8 @@ const default_settings = {
     separate_long_term: false,  // whether to keep memories marked for long-term separate from short-term
     summary_injection_separator: "\n* ",  // separator when concatenating summaries
     summary_injection_threshold: 0,            // start injecting summaries after this many messages
-    exclude_messages_after_threshold: false,   // remove messages from context after the summary injection threshold
+    exclude_messages_after_threshold: true,    // remove messages from context after the summary injection threshold
+    injection_threshold_update_delay: 0,  // number of messages before updating the threshold
     keep_last_user_message: true,  // keep the most recent user message in context
 
     long_template: default_long_template,
@@ -3499,6 +3500,34 @@ function get_character_key(message) {
 
 
 // Retrieving memories
+var INJECTION_THRESHOLD_INDEX = null;  // Index of the injection threshold, i.e. the first message index to inject
+var LAST_INJECTION_THRESHOLD = null;  // the last value of the injection threshold
+function get_injection_threshold() {
+    // Update and return the injection threshold index
+    let threshold = get_settings('summary_injection_threshold')  // number of messages back in the chat to start injecting
+    let update_delay = get_settings('injection_threshold_update_delay')  // messages to wait before updating the threshold's position in chat
+    let chat_length = getContext().chat.length
+    let base_index = chat_length - threshold  // What the index would be if we updated it right now
+
+    // Check whether the threshold has changed
+    let threshold_changed = false
+    if (threshold !== LAST_INJECTION_THRESHOLD) {
+        LAST_INJECTION_THRESHOLD = threshold
+        threshold_changed = true
+    }
+
+    // set to the index of the desired threshold if:
+    // we have passed the update delay
+    // or the update delay is 0 (the default)
+    // or the current index is null
+    // or the threshold changed
+    // or the current threshold is not a valid index (larger than the chat)
+    if (INJECTION_THRESHOLD_INDEX === null || threshold_changed || update_delay === 0 || (base_index - INJECTION_THRESHOLD_INDEX) > update_delay || INJECTION_THRESHOLD_INDEX >= chat_length) {
+        INJECTION_THRESHOLD_INDEX = base_index
+        debug("Updated injection threshold index: ", base_index)
+    }
+    return INJECTION_THRESHOLD_INDEX
+}
 function check_message_exclusion(message) {
     // check for any exclusion criteria for a given message based on current settings
     // (this does NOT take context lengths into account, only exclusion criteria based on the message itself).
@@ -3561,19 +3590,15 @@ function update_message_inclusion_flags() {
     let chat = context.chat;
 
     debug("Updating message inclusion flags")
-
     let separate_long_term = get_settings('separate_long_term')
-    let injection_threshold = get_settings('summary_injection_threshold')
     let exclude_messages = get_settings('exclude_messages_after_threshold')
     let keep_last_user_message = get_settings('keep_last_user_message')
-    let first_to_inject = chat.length - injection_threshold
-    let last_user_message_identified = false
+    let first_to_inject = get_injection_threshold()
 
-    // iterate through the chat in reverse order and mark the messages that should be included in short-term and long-term memory
+    let last_user_message_identified = false
     let short_limit_reached = false;
     let long_limit_reached = false;
     let end = chat.length - 1;
-
     let short_token_size = 1  // due to the separator being at the beginning of text, it seems to always add 1 token to the count
     let long_token_size = 1
 
@@ -3584,7 +3609,7 @@ function update_message_inclusion_flags() {
     let short_token_limit = get_short_token_limit()
     let long_token_limit = get_long_token_limit()
 
-
+    // iterate through the chat in reverse order and mark the messages that should be included in short-term and long-term memory
     for (let i = end; i >= 0; i--) {
         let message = chat[i];
 
@@ -3794,7 +3819,7 @@ function refresh_memory() {
 const refresh_memory_debounced = debounce(refresh_memory, debounce_timeout.relaxed);
 
 function collect_messages_to_auto_summarize() {
-    // iterate through the chat in chronological order and check which messages need to be summarized.
+    // iterate through the chat and check which messages need to be summarized.
     let context = getContext();
 
     let messages_to_summarize = []  // list of indexes of messages to summarize
@@ -3998,9 +4023,7 @@ function initialize_settings_listeners() {
     bind_function('#delete_profile', delete_profile, false);
 
     bind_function('#export_profile', () => export_profile(), false)
-    bind_function('#import_profile', (e) => {
-        $(e.target).parent().find("#import_file").click()
-    }, false)
+    bind_function('#import_profile', (e) => {$(e.target).parent().find("#import_file").click()}, false)
     bind_function('#import_file', async (e) => await import_profile(e), false)
 
     bind_function('#character_profile', () => toggle_character_profile());
@@ -4058,6 +4081,7 @@ function initialize_settings_listeners() {
     bind_setting('#summary_injection_separator', 'summary_injection_separator', 'text')
     bind_setting('#summary_injection_threshold', 'summary_injection_threshold', 'number');
     bind_setting('#exclude_messages_after_threshold', 'exclude_messages_after_threshold', 'boolean');
+    bind_setting('#injection_threshold_update_delay', 'injection_threshold_update_delay', 'number')
     bind_setting('#keep_last_user_message', 'keep_last_user_message', 'boolean')
     bind_setting('#separate_long_term', 'separate_long_term', 'boolean');
 

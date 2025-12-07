@@ -111,7 +111,7 @@
                     <span>Auto Summarize</span>
                 </label>
 
-                <label class="checkbox_label" title="Auto-summarization will be triggered before a new message is sent instead of after.">
+                <label class="checkbox_label" title="Auto-summarization will be triggered before the LLM replies instead of after.">
                     <input id="auto_summarize_on_send" type="checkbox" />
                     <span>Before Generation</span>
                 </label>
@@ -126,7 +126,7 @@
                     <span>Message Lag</span>
                 </label>
 
-                <label class="checkbox_label" title="Wait until this many valid messages before auto-summarizing them all in sequence (1 = summarize every message immediately, 2 = summarize when you have two ready, etc). Still summarizes one at a time. ">
+                <label class="checkbox_label" title="Wait until this many valid messages before auto-summarizing them all in sequence (1 = summarize every message immediately, 2 = summarize when you have two ready, etc).">
                     <input id="auto_summarize_batch_size" class="text_pole widthUnset inline_setting" type="number" min="1" max="999" />
                     <span>Batch Size</span>
                 </label>
@@ -141,20 +141,24 @@
                 <hr>
                 <h4 class="textAlignCenter">General Injection Settings <i class="fa-solid fa-info-circle" title="Determines how summaries are injected into context, applying to both short and long term memory."></i></h4>
                 <label title="Separator between summaries when injected into context." class="checkbox_label">
-                    <input id="summary_injection_separator" class="text_pole" type="text" placeholder="" style="width: 5em">
+                    <input id="summary_injection_separator" class="text_pole" type="text" placeholder="" style="width: 3em">
                     <span>Summary Separator</span>
                 </label>
-                <label title="The number of messages to wait before summaries start to be injected." class="checkbox_label">
-                    <input id="summary_injection_threshold" class="text_pole widthUnset" type="number" min="0" max="999" />
-                    <span>Start Injecting After</span>
+                <label title="Summaries won't be injected until they are this many messages back in the chat (0 = start injecting summaries as soon as they are generated)." class="checkbox_label">
+                    <input id="summary_injection_threshold" class="text_pole inline_setting" type="number" min="0" max="999" />
+                    <span>Injection Threshold</span>
                 </label>
-                <label title="Messages after the summary injection threshold above will be removed from context, leaving only the summaries." class="checkbox_label">
+                <label title="Delay updating the injection threshold by this many messages. As new messages are added, the injection threshold moves to keep up, which can invalidate the model's cache. By default, this occurs every message (0 = no delay). Increasing this number means that the injection threshold won't update every message, and instead remain at the same relative position in the chat history for that many messages. Updating less frequently (higher numbers) is helpful for keeping context unchanged for longer, thus reducing cache invalidation." class="checkbox_label">
+                    <input id="injection_threshold_update_delay" class="text_pole inline_setting" type="number" min="0" max="999" />
+                    <span>Update Delay</span>
+                </label>
+                <label title="All messages after the injection threshold will be removed from context, leaving only the summaries." class="checkbox_label">
                     <input id="exclude_messages_after_threshold" type="checkbox">
-                    <span>Remove Messages After Threshold</span>
+                    <span>Remove Messages</span>
                 </label>
-                <label title="This will keep the most recent user message in context even if it's past the exclusion threshold" class="checkbox_label">
+                <label title="This will keep the most recent user message in context even if it's past the threshold." class="checkbox_label">
                     <input id="keep_last_user_message" type="checkbox">
-                    <span>Preserve Last User Message</span>
+                    <span>Keep Last User Msg</span>
                 </label>
                 <label title="In Static Memory Mode, long-term memories are always injected separately from short-term memories, regardless of chronological order. This is in contrast to the default behavior where summaries are kept in short-term memory until the context fills up, then dynamically moved to long-term memory if marked as such." class="checkbox_label">
                     <input id="separate_long_term" type="checkbox">
@@ -210,24 +214,24 @@
                     </div>
                 </div>
 
-                <label class="checkbox_label" title="Include short-term memory in the World Info Scan">
+                <label class="checkbox_label" title="Include short-term when scanning for World Info triggers">
                     <input id="short_term_scan" type="checkbox" />
-                    <span>Include in World Info Scanning</span>
+                    <span>Include in WI Scan</span>
                 </label>
                 <div class="radio_group">
-                    <label title="You can instead inject it into your story string manually with the {{qm-short-term-memory}} macro">
+                    <label title="Will not be automatically injected. You can instead inject it manually with the {{qm-short-term-memory}} macro">
                         <input type="radio" name="short_term_position" value="-1" />
-                        <span>Do not inject</span>
+                        <span>Macro Only</span>
                     </label>
-                    <label>
+                    <label title="Will be automatically injected into your context before the main prompt">
                         <input type="radio" name="short_term_position" value="2" />
                         <span>Before main prompt</span>
                     </label>
-                    <label>
+                    <label title="Will be automatically injected into your context after the main prompt">
                         <input type="radio" name="short_term_position" value="0" />
                         <span>After main prompt</span>
                     </label>
-                    <label class="flex-container alignItemsCenter" title="How many messages before the current end of the chat.">
+                    <label class="flex-container alignItemsCenter" title="Will be automatically injected this many messages before the end of the chat">
                         <input type="radio" name="short_term_position" value="1" />
                         <span>In chat at depth</span>
                         <input id="short_term_depth" class="text_pole inline_setting" type="number" min="0" max="99" />
@@ -265,24 +269,24 @@
                     </div>
 
                 </div>
-                <label class="checkbox_label" title="Include long-term memory in the World Info Scan">
+                <label class="checkbox_label" title="Include long-term memory when scanning for World Info triggers">
                     <input id="long_term_scan" type="checkbox" />
-                    <span>Include in World Info Scanning</span>
+                    <span>Include in WI Scan</span>
                 </label>
                 <div class="radio_group">
-                    <label title="You can instead inject it into your story string manually with the {{qm-long-term-memory}} macro">
+                    <label title="Will not be automatically injected into your context. You can instead inject it manually with the {{qm-long-term-memory}} macro">
                         <input type="radio" name="long_term_position" value="-1" />
-                        <span>Do not inject</span>
+                        <span>Macro Only</span>
                     </label>
-                    <label>
+                    <label title="Will be automatically injected into your context before the main prompt">
                         <input type="radio" name="long_term_position" value="2" />
                         <span>Before main prompt</span>
                     </label>
-                    <label>
+                    <label title="Will be automatically injected into your context after the main prompt">
                         <input type="radio" name="long_term_position" value="0" />
                         <span>After main prompt</span>
                     </label>
-                    <label class="flex-container alignItemsCenter" title="How many messages before the current end of the chat.">
+                    <label class="flex-container alignItemsCenter" title="Will be automatically injected this many messages before the end of the chat">
                         <input type="radio" name="long_term_position" value="1" />
                         <span>In chat at depth</span>
                         <input id="long_term_depth" class="text_pole inline_setting" type="number" min="0" max="99" />

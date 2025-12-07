@@ -72,17 +72,23 @@ How this extension addresses these issues:
 - If you are using a cloud model with an API request limit, you can also set a `Time Delay` between summaries.
 
 #### Auto-Summarization
-- Here you can control how often your messages are automatically summarized, if at all. By default, summarizations will occur automatically right after a message is sent in the chat. The extension will go back in your chat and look for any messages that need to be summarized, following certain criteria (see the [Short-Term Memory Injection](#short-term-memory-injection) section). 
-- If you instead want previous messages to be summarized right *before* a new one is sent, choose `Before Generation`
+- Here you can control how often your messages are automatically summarized, if at all. 
+By default, summarizations will occur automatically right after an LLM reply is sent in the chat. 
+The extension will go back in your chat and look for any messages that need to be summarized, following certain criteria (see the [Short-Term Memory Injection](#short-term-memory-injection) section). 
+- If you instead want previous messages to be summarized right *before* the LLM reply is sent, choose `Before Generation`.
 - The `Message Lag` setting will make auto-summarization lag behind by the specified number of messages, useful if you only want things summarized once they've been in the chat for a while.
 - The `Batch Size` setting will wait the specified number of messages before summarizing all of them in sequence (they are still summarized individually).
 - The `Message Limit` setting will set an upper limit to how many messages to look backward in the chat when auto-summarizing.
 
 #### General Injection Settings
 - This controls how summaries are injected into your context (applies to both `short-term` and `long-term`)
-- Here the `Start Injecting After` setting controls how many messages to wait before summaries even start to be injected into your context.
-- You can then optionally remove the original messages associated with those summaries from your context to free up space by selecting `Remove Messages After Threshold`.
+- Here the `Injection Threshold` setting controls how many messages to wait before summaries even start to be injected into your context.
+- You can then optionally remove the original messages from your context after that same threshold to free up space by selecting `Remove Messages After Threshold`.
+If you want to guarantee that your most recent user message will not be removed, select `Preserve Last User Message`.
+- By default, this threshold remains at the same number of messages back in your chat history. This means that every time you send a message, it moves up and could potentially inject a new summary. 
+If this invalidates your model's cache too frequently, you can reduce how often the threshold is moved by increasing the `Update Delay`. This means the threshold will stay at the same *relative* position in chat history for that many messages before catching up.
 - By default, all summaries will be included in `short-term` memory until they exceed the context limit, at which point they will be put into `long-term` memory if you have manually marked them as such. If instead you enable `Static Memory Mode`, marked summaries will instead always be put in `long-term` memory regardless of context. Be aware that this may put memories out of chronological order.
+- *Summary Separator* is what will be prefixed to each summary when injected into context. The default value of `\n*` means that each summary will be in a bullet-point list.
 
 #### Short-Term Memory Injection
 - These settings affect how `short-term` summaries are injected.
@@ -91,12 +97,14 @@ How this extension addresses these issues:
 - The `Message Length Threshold` determines how long a message has to be in order to summarize it (in tokens).
 - The `Context` determines how many tokens in your context all `short-term` summaries are allowed to take up. Once older summaries exceed this limit, they are either discarded or moved into `long-term` memory.
 - You can also select where in your context to inject `short-term` summaries, or choose not to inject them at all (in which case you would need to use the `{{qm-short-term-memory}}` macro to manually put them into your context).
+- If you select the same injection position for both `short-term` and `long-term`, then `long-term` will be placed before `short-term`.
 
 #### Long-Term Memory Injection
 - These settings affect how `long-term` summaries are injected.
 - Because `long-term` summaries are manually selected, there is no automatic inclusion criteria.
 - The `Context` determines how many tokens in your context all `long-term` summaries are allowed to take up. Once older summaries exceed this limit, they are removed from context completely.
 - You can also select where in your context to inject `long-term` summaries, or choose not to inject them at all (in which case you would need to use the `{{qm-long-term-memory}}` to manually put them into your context).
+- If you select the same injection position for both `short-term` and `long-term`, then `long-term` will be placed before `short-term`.
 
 #### Misc.
 - This section contains a few miscellaneous settings.
