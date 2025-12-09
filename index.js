@@ -1100,6 +1100,7 @@ function load_profile(profile=null) {
     if (get_settings("notify_on_profile_switch") && current_profile !== profile) {
         toast(`Switched to profile "${profile}"`, 'info')
     }
+    migrate_profile()
     refresh_settings();
 }
 function export_profile(profile=null) {
@@ -1292,7 +1293,18 @@ function auto_load_profile() {
     load_profile(profile || 'Default');
     refresh_settings()
 }
+function migrate_profile() {
+    // perform any necessary settings migrations on the current profile, saving the profile afterward
 
+    // If the connection profile is a name, replace it with an ID
+    let id = get_settings('connection_profile')
+    let data = get_connection_profiles().find((p) => p.name == id);
+    if (id && data) {
+        set_settings('connection_profile', data.id)
+        save_profile()
+        log("Connection profile name swapped with ID.")
+    }
+}
 
 
 // UI functions
