@@ -131,7 +131,7 @@ Note: all commands have `/qvink-memory-` as an alias.
 - `/qm-summarize-chat`: Performs a single auto-summarization on the chat, even if auto-summarization is disabled. This takes into account the auto-summarization inclusion criteria and message limit.
 - `/qm-stop-summarization`: stops any sequence of summarizations currently running. Same as clicking the "stop" button in the config or next to the progress bar.
 - `/qm-max-summary-tokens`: Get the max response tokens defined in the current completion preset used for summaries.
-
+- `/qm-update-injection-threshold`: Force an update to the injection threshold, regardless of the "Update Delay" setting.
 
 ### Custom CSS
 You can easily customize the CSS for displayed memories by setting the following variables:

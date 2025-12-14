@@ -3540,6 +3540,10 @@ function get_injection_threshold() {
     }
     return INJECTION_THRESHOLD_INDEX
 }
+function reset_injection_threshold() {
+    log("Reset injection threshold")
+    INJECTION_THRESHOLD_INDEX = null
+}
 function check_message_exclusion(message) {
     // check for any exclusion criteria for a given message based on current settings
     // (this does NOT take context lengths into account, only exclusion criteria based on the message itself).
@@ -4500,6 +4504,14 @@ function initialize_slash_commands() {
         helpString: 'Return the max tokens allowed for summarization given the summary connection profile.'
     }));
 
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'qm-update-injection-threshold',
+        aliases: ['qvink-memory-update-injection-threshold'],
+        callback: async (args) => {
+            reset_injection_threshold()
+        },
+        helpString: 'Force an update to the injection threshold, regardless of the "Update Delay" setting.'
+    }));
 }
 
 function add_menu_button(text, fa_icon, callback, hover=null) {
