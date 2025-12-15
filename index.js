@@ -36,6 +36,7 @@ import { dragElement } from '../../../RossAscends-mods.js';
 import { debounce_timeout } from '../../../constants.js';
 import { MacrosParser } from '../../../macros.js';
 import { getRegexScripts, runRegexScript } from '../../../../scripts/extensions/regex/engine.js'
+import { itemizedPrompts } from '../../../../scripts/itemized-prompts.js'
 import { t, translate } from '../../../i18n.js';
 
 export { MODULE_NAME };
@@ -123,6 +124,7 @@ const default_settings = {
     auto_summarize_on_continue: false, // whether automatically re-summarize after a continue
     auto_summarize_progress: true,  // display a progress bar for auto-summarization
     auto_summarize_on_send: false,  // trigger auto-summarization right before a new message is sent
+    auto_summarize_block_generation: true,  // Whether to wait until summarizations finish before generation
     block_chat: true,  // block input when summarizing
 
     // injection settings
@@ -1829,7 +1831,7 @@ class MemoryEditInterface {
         })
         this.$content.on("click", `tr .${summarize_button_class}`, async function () {
             let message_id = Number($(this).closest('tr').attr('message_id'));  // get the message ID from the row's "message_id" attribute
-            await summaryQueue.summarize(message_id);
+            await summaryQueue.summarize(message_id, true, false, false);
         });
 
         add_i18n(this.$content)
@@ -3075,9 +3077,11 @@ class SummaryQueue {
         this.show_progress = true  // Whether to show the progress bar
         this.current_progress = 0
         this.current_task_count = 0
+        this.current_indexes = {}  // set of current indexes being summarized (used to filter duplicates)
+        this.completed_indexes = {}  // set of indexes that have been completed (used to filter duplicates)
     }
 
-    async summarize(indexes, skip_first=true, show_progress=true) {
+    async summarize(indexes, skip_first=true, show_progress=true, filter_duplicates=true) {
         // Summarize the given message indexes
         let ctx = getContext();
         if (indexes === null) {  // default to the mose recent message, min 0
@@ -3085,6 +3089,19 @@ class SummaryQueue {
         }
         indexes = Array.isArray(indexes) ? indexes : [indexes]  // accept a single index
         if (!indexes.length) return;
+
+        // Filter out duplicate summaries
+        let filtered = []
+        for (let index of indexes) {
+            if (filter_duplicates) {  // remove duplicates even if they've already been run
+                if (index in this.current_indexes) continue;
+            } else {  // Only remove duplicates if they haven't been run yet
+                if (index in this.current_indexes && !(index in this.completed_indexes)) continue;
+            }
+            this.current_indexes[index] = null
+            filtered.push(index)
+        }
+        indexes = filtered
 
         let profile = get_summary_connection_profile()
         skip_first = skip_first || get_settings('summarization_time_delay_skip_first')  // Whether to skip the first summary delay
@@ -3127,6 +3144,8 @@ class SummaryQueue {
             this.summarization_stopped = false
             this.current_task_count = 0
             this.current_progress = 0
+            this.current_indexes = {}
+            this.completed_indexes = {}
 
             if (get_settings('block_chat')) {  // reactivate send button
                 ctx.activateSendButtons();
@@ -3217,6 +3236,7 @@ class SummaryQueue {
         } finally {
             this.active_workers -= 1;
             this.current_progress += 1;
+            this.completed_indexes[task.index] = null
             this.run();  // attempt to run more workers
         }
     }
@@ -3941,7 +3961,8 @@ async function on_chat_event(event=null, data=null) {
             index = context.chat.length - 1
             if (last_message_swiped === index) break;  // this is a swipe, skip
             debug("Summarizing chat before message")
-            await auto_summarize_chat(true);  // auto-summarize the chat
+            let promise = auto_summarize_chat(true);  // auto-summarize the chat
+            if (get_settings('auto_summarize_block_generation')) await promise;
             break;
 
         case 'user_message':
@@ -3953,7 +3974,8 @@ async function on_chat_event(event=null, data=null) {
             // Summarize the chat if "include_user_messages" is enabled
             if (get_settings('include_user_messages')) {
                 debug("New user message detected, summarizing")
-                await auto_summarize_chat(true);  // auto-summarize the chat (checks for exclusion criteria and whatnot)
+                let promise = auto_summarize_chat(true);  // auto-summarize the chat (checks for exclusion criteria and whatnot)
+                if (get_settings('auto_summarize_block_generation')) await promise;
             }
 
             break;
@@ -3969,7 +3991,7 @@ async function on_chat_event(event=null, data=null) {
                 if (!check_message_exclusion(message)) break;  // if the message is excluded, skip
                 if (!get_previous_swipe_memory(message, 'memory')) break;  // if the previous swipe doesn't have a memory, skip
                 debug("re-summarizing on swipe")
-                await summaryQueue.summarize(index, false);  // summarize the swiped message
+                await summaryQueue.summarize(index, true, false, false);  // summarize the swiped message
                 refresh_memory()
             } else if (last_message === index) {  // not a swipe, but the same index as last message - must be a continue
                 last_message_swiped = null
@@ -3977,14 +3999,15 @@ async function on_chat_event(event=null, data=null) {
                 if (!get_settings("auto_summarize_on_continue")) break;  // if auto_summarize_on_continue is disabled, no nothing
                 if (!get_memory(message, 'memory')) break;  // if the message doesn't have a memory, skip.
                 debug("re-summarizing on continue")
-                await summaryQueue.summarize(index, false);  // summarize the swiped message
+                await summaryQueue.summarize(index, true, false, false);  // summarize the continued message
                 refresh_memory()
             } else { // not a swipe or continue
                 last_message_swiped = null
                 if (!get_settings('auto_summarize')) break;  // if auto-summarize is disabled, do nothing
                 if (get_settings("auto_summarize_on_send")) break;  // if auto_summarize_on_send is enabled, don't auto-summarize on character message
                 debug("New message detected, summarizing")
-                await auto_summarize_chat(false);  // auto-summarize the chat,
+                let promise = auto_summarize_chat(false);  // auto-summarize the chat
+                if (get_settings('auto_summarize_block_generation')) await promise;
             }
             last_message = index;
             break;
@@ -3996,7 +4019,7 @@ async function on_chat_event(event=null, data=null) {
             if (!check_message_exclusion(context.chat[index])) break;  // if the message is excluded, skip
             if (!get_data(context.chat[index], 'memory')) break;  // if the message doesn't have a memory, skip
             debug("Message with memory edited, summarizing")
-            summaryQueue.summarize(index);  // summarize that message (no await so the edit textarea closes)
+            summaryQueue.summarize(index, true, false, false);  // summarize that message (no await so the edit textarea closes)
             break;
 
         case 'message_swiped':  // when this event occurs, don't summarize yet (a new_message event will follow)
@@ -4082,6 +4105,7 @@ function initialize_settings_listeners() {
     bind_setting('#auto_summarize_message_limit', 'auto_summarize_message_limit', 'number');
     bind_setting('#auto_summarize_progress', 'auto_summarize_progress', 'boolean');
     bind_setting('#auto_summarize_on_send', 'auto_summarize_on_send', 'boolean');
+    bind_setting('#auto_summarize_block_generation', 'auto_summarize_block_generation', 'boolean');
     bind_setting('#parallel_summaries_count', 'parallel_summaries_count', 'number');
     bind_setting('#summarization_delay', 'summarization_delay', 'number');
     bind_setting('#summarization_time_delay', 'summarization_time_delay', 'number')
@@ -4156,7 +4180,7 @@ function initialize_message_buttons() {
     $chat.on("click", `.${summarize_button_class}`, async function () {
         const message_block = $(this).closest(".mes");
         const message_id = Number(message_block.attr("mesid"));
-        summaryQueue.summarize(message_id);  // summarize the message
+        summaryQueue.summarize(message_id, true, false, false);  // summarize the message
     });
     $chat.on("click", `.${edit_button_class}`, async function () {
         const message_block = $(this).closest(".mes");
@@ -4461,7 +4485,7 @@ function initialize_slash_commands() {
         aliases: ['qvink-memory-summarize'],
         callback: async (args, index) => {
             if (index === "") index = null  // if not provided the index is an empty string, but we need it to be null to get the default behavior
-            await summaryQueue.summarize(index);  // summarize the message
+            await summaryQueue.summarize(index, true, false, false);  // summarize the message
             return "";
         },
         helpString: 'Summarize the given message index (defaults to most recent applicable message).',

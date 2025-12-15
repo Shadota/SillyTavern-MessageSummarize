@@ -4,7 +4,7 @@
 **ST Version Requirement**: You must be on ST v1.14.0 (relies on [this PR](https://github.com/SillyTavern/SillyTavern/pull/4841))\
 **IMPORTANT**: Your summary `Completion Preset` is now entirely determined by the `Connection Profile`. If you previously had a `Completion Preset` configured for summaries, you will need to make sure that your `Connection Profile` specifies it instead.
 - **New Feature**: `Connection Profiles` are now used for summaries **without switching** back and forth. 
-- **New Feature**: Parallel API requests now supported, configured by the `Parallel Summaries` setting.
+- **New Feature**: Parallel API requests now supported, configured by the `Parallel Summaries` setting. Auto-summary will block chat generation by default, but this can be disabled via the `Block Generation` toggle.
 - **New Feature**: New setting called `Update Delay` which delays updating the `Injection Threshold` when new messages are sent. This is useful for reducing how frequently your context cache is invalidated by adding summaries.
 - **Changed**: Some config settings had their name adjusted (e.g. `Start Injecting After` -> `Injection Threshold`, `Remove Messages After Threshold` -> `Remove Messages`, `Do Not Inject` -> `Macro Only`). These changes have not affected their functionality.
 - **Removed**: You can no longer configure a separate `Completion Preset` for summaries (it is instead determined by the `Connection Profile`).
