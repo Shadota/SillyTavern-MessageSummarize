@@ -45,7 +45,7 @@ How this extension addresses these issues:
 
 ### Notable Features
 - **Configuration profiles:** save and load different configurations profiles and set one to be auto-loaded for each character, group, or chat.
-- **Separate Completion Preset / Connection Profile**: Choose one of your completion presets and connection profiles to be used for summaries.
+- **Separate Connection Profile**: Choose a separate connection profile to be used for summaries.
 - **Popout config menu:** customize summarization settings, injection settings, and auto-summarization message inclusion criteria.
 - **Save Context:** Optionally remove full messages from your context that have been summarized to reduce token usage.
 - **Unobtrusive Display:** Summaries are optionally displayed in small text below each message, colored according to their status:
@@ -67,7 +67,7 @@ How this extension addresses these issues:
 #### Summarization:
 - This section of the config menu is where you control how your messages are summarized.
 - Click the `Edit` button to bring up a popup that allows you to edit the summarization prompt itself, along with custom macros that will insert messages from your chat. Here you can also change the role used for the prompt as well as a response prefill.
-- You can also set a separate `Connection Profile` or `Completion Preset` to be used specifically for summarizations. Note that due to a limitation of ST (ST can only have one connection and preset active at a time), when summaries occur the extension switches to that connection profile and completion preset until summarization is complete. This means that, if you have unsaved changes to your connection profile or completion preset, they will be lost when summarization occurs.
+- You can also set a separate `Connection Profile` to be used specifically for summarizations.
 - You can control whether messages get re-summarized when they are edited, swiped, or continued.
 - If you are using a cloud model with an API request limit, you can also set a `Time Delay` between summaries.
 
@@ -227,7 +227,7 @@ This is most likely an issue with the summary prompt.\
 
 
 - **The summaries are too long:** 
-  1. You can select a custom completion preset in the settings to use for summarizations, and that can be used to set a maximum token length after which generation will be cut off. 
+  1. You can select a custom completion preset in the connection profile you are using for summarizing, and that can be used to set a maximum token length after which generation will be cut off. 
   2. You can also use the `{{words}}` macro in the summary prompt to try and guide the LLM according to that token length, though LLMs cannot actually count words so it's really just a suggestion.
 
 
@@ -246,9 +246,6 @@ This is most likely an issue with the summary prompt.\
 
 
 - **Just updated and things are broken:** try reloading the page first, and make sure you are on the most recent version of ST. If you are on the dev branch of this extension, you must also be on the staging branch of ST.
-
-
-- **When I use a different completion preset for summaries, my regular completion preset get changed after summarizing:** When a summary is generated, we actually have to switch completion presets temporarily which discards any unsaved changes you might have made to your current completion preset. This is just how ST does things. The same applies to connection profiles (which in turn affects instruction templates.)
 
 
 - **An unknown error occurred while counting tokens**: This might indicate an issue with your custom chat completion preset. ST expects there to be a prompt section called "main", which is where extension injections go by default. If your preset doesn't have a section called "main", this will fail and cause the above error. To fix this, you can (1) add a section called "main" to your preset or (2) go to this extension's config menu and click "Do not inject" in both the short-term and long-term injection sections. This will prevent the extension from attempting to insert context, and you can instead use the `{{qm-long-term-memory}}` and `{{qm-short-term-memory}}` macros to place them anywhere you want.
