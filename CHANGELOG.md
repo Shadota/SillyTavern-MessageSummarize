@@ -10,6 +10,7 @@
 - **Removed**: You can no longer configure a separate `Completion Preset` for summaries (it is instead determined by the `Connection Profile`).
 - **Fixed**: Fixed case where short-term messages would be included in the short-term context size calculation even if they were not injected due to injection delay.
 - **Fixed**: Properly escapes special characters in summary prefill.
+- **Fixed**: Fixed bug where "Restore Profile" button didn't visually update memories in the chat.
 
 #### v1.2.16
 - **ST Version Requirement**: You must be on ST v1.13.5

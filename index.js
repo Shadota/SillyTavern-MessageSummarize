@@ -1126,6 +1126,7 @@ function load_profile(profile=null) {
     }
     migrate_profile()
     refresh_settings();
+    refresh_memory();
 }
 function export_profile(profile=null) {
     // export a settings profile
@@ -3620,7 +3621,6 @@ function get_injection_threshold() {
                 break;
             }
         }
-        debug("SUmmaries: ", num_summaries)
     }
 
     // Check whether the previous prompt has reached the context percent criteria
