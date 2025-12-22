@@ -130,10 +130,13 @@ const default_settings = {
     // injection settings
     separate_long_term: false,  // whether to keep memories marked for long-term separate from short-term
     summary_injection_separator: "\n* ",  // separator when concatenating summaries
-    summary_injection_threshold: 0,            // start injecting summaries after this many messages
-    exclude_messages_after_threshold: true,    // remove messages from context after the summary injection threshold
-    injection_threshold_update_delay: 0,  // number of messages before updating the threshold
+    summary_injection_threshold: 10,            // start injecting summaries after this many messages
+    summary_injection_threshold_type: "messages",  // messages, tokens, percent
+    exclude_messages_after_threshold: true,    // remove messages from context after the injection threshold
     keep_last_user_message: true,  // keep the most recent user message in context
+    injection_threshold_update_trigger_messages: 0,  // update threshold when this many new messages are sent
+    injection_threshold_update_trigger_summaries: 0,  // update threshold when this many new summaries are ready
+    injection_threshold_update_trigger_context: 0,  // update threshold when the last prompt reched this percent of max context
 
     long_template: default_long_template,
     long_term_context_limit: 10,  // context size to use as long-term memory limit
@@ -199,6 +202,25 @@ function count_tokens(text, padding = 0) {
 function get_context_size() {
     // Get the current context size
     return getMaxContextSize();
+}
+function get_last_prompt_size() {
+    // return the size in tokens of the last message's prompt
+    let last_index = getContext().chat.length - 1
+
+    let raw_prompt = undefined;
+    for (let i = 0; i < itemizedPrompts.length; i++) {
+        let itemized_prompt = itemizedPrompts[i]
+        if (itemized_prompt.mesId === last_index) {
+            raw_prompt = itemized_prompt.rawPrompt
+            break;
+        }
+    }
+    if (raw_prompt === undefined) {
+        debug('Could not find raw prompt for message:', last_index)
+        return 0
+    }
+    if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
+    return count_tokens(raw_prompt)
 }
 function get_long_token_limit() {
     // Get the long-term memory token limit, given the current context size and settings
@@ -3534,27 +3556,80 @@ function get_character_key(message) {
 // Retrieving memories
 var INJECTION_THRESHOLD_INDEX = null;  // Index of the injection threshold, i.e. the first message index to inject
 var LAST_INJECTION_THRESHOLD = null;  // the last value of the injection threshold
+var LAST_INJECTION_THRESHOLD_TYPE = null;
 function get_injection_threshold() {
     // Update and return the injection threshold index
-    let threshold = get_settings('summary_injection_threshold')  // number of messages back in the chat to start injecting
-    let update_delay = get_settings('injection_threshold_update_delay')  // messages to wait before updating the threshold's position in chat
-    let chat_length = getContext().chat.length
-    let base_index = chat_length - threshold  // What the index would be if we updated it right now
+    let chat = getContext().chat
+    let threshold_value = get_settings('summary_injection_threshold')  // number of messages back in the chat to start injecting
+    let threshold_type = get_settings('summary_injection_threshold_type')
 
-    // Check whether the threshold has changed
+    let threshold = threshold_value  // if type is "messages"
+    if (threshold_type === 'percent') threshold_value = Math.floor(threshold_value * get_context_size() / 100)
+    if (threshold_type !== 'messages') {  // tokens or percent converted to tokens
+        threshold = 0
+        let tokens = 0
+        for (let i=chat.length-1; i>=0; i--) {
+            tokens += count_tokens(chat[i].mes)
+            if (tokens >= threshold_value) break;  // over the token threshold
+            threshold += 1  // haven't reached the token threshold yet
+        }
+        debug("Calculated injection threshold: ", threshold)
+    }
+
+    let messages_trigger = get_settings('injection_threshold_update_trigger_messages')  // update after this many new messages
+    let summaries_trigger = get_settings('injection_threshold_update_trigger_summaries')  // update after this many new summaries
+    let context_trigger = get_settings('injection_threshold_update_trigger_context')  // update after previous prompt reaches this percent of max context
+    let base_index = (chat.length-1) - threshold  // What the index would be if we updated it right now
+
+    // Check whether the threshold setting itself has changed
     let threshold_changed = false
-    if (threshold !== LAST_INJECTION_THRESHOLD) {
+    if (threshold !== LAST_INJECTION_THRESHOLD || threshold_type !== LAST_INJECTION_THRESHOLD_TYPE) {
         LAST_INJECTION_THRESHOLD = threshold
+        LAST_INJECTION_THRESHOLD_TYPE = threshold_type
         threshold_changed = true
     }
 
     // set to the index of the desired threshold if:
-    // we have passed the update delay
-    // or the update delay is 0 (the default)
-    // or the current index is null
+    // the current index is null
     // or the threshold changed
     // or the current threshold is not a valid index (larger than the chat)
-    if (INJECTION_THRESHOLD_INDEX === null || threshold_changed || update_delay === 0 || (base_index - INJECTION_THRESHOLD_INDEX) > update_delay || INJECTION_THRESHOLD_INDEX >= chat_length) {
+    // or all the trigger criteria are disabled
+    // or we have triggered any of the update criteria
+    let criteria_met = INJECTION_THRESHOLD_INDEX === null || threshold_changed || INJECTION_THRESHOLD_INDEX >= chat.length
+    if (!criteria_met && messages_trigger <= 0 && summaries_trigger <= 0 && context_trigger <= 0) {
+        criteria_met = true  // If all triggers are disabled (0), then we should always update
+    }
+
+    // Check whether we have enough messages to update
+    if (!criteria_met && messages_trigger > 0) {
+        criteria_met = (base_index - INJECTION_THRESHOLD_INDEX) >= message_trigger
+        if (criteria_met) debug(`Injection update triggered: New messages > ${message_trigger}`)
+    }
+
+    // Check whether we have enough summaries ready to update
+    if (!criteria_met && summaries_trigger > 0 && (base_index - INJECTION_THRESHOLD_INDEX) >= summaries_trigger) {
+        // check all messages after the current threshold for summaries
+        let num_summaries = 0
+        for (let i = INJECTION_THRESHOLD_INDEX; i <= base_index; i++) {
+            let message = chat[i]
+            if (!get_memory(message) || !check_message_exclusion(message)) continue;
+            num_summaries += 1  // has a potentially included summary
+            criteria_met = num_summaries >= summaries_trigger
+            if (criteria_met) {
+                debug(`Injection update triggered: New summaries > ${summaries_trigger}`)
+                break;
+            }
+        }
+        debug("SUmmaries: ", num_summaries)
+    }
+
+    // Check whether the previous prompt has reached the context percent criteria
+    if (!criteria_met && context_trigger > 0) {
+        criteria_met = (100*get_last_prompt_size()/get_context_size()) >= context_trigger
+        if (criteria_met) debug(`Injection update triggered: Previous prompt context > ${context_trigger}%`)
+    }
+
+    if (criteria_met) {
         INJECTION_THRESHOLD_INDEX = base_index
         debug("Updated injection threshold index: ", base_index)
     }
@@ -3569,7 +3644,7 @@ function check_message_exclusion(message) {
     // (this does NOT take context lengths into account, only exclusion criteria based on the message itself).
     if (!message) return false;
 
-    // system messages sent by this extension are always ignored
+    // system messages sent by this extension are always ignored  // TODO currently not used
     if (get_data(message, 'is_qvink_system_memory')) {
         return false;
     }
@@ -3630,6 +3705,7 @@ function update_message_inclusion_flags() {
     let exclude_messages = get_settings('exclude_messages_after_threshold')
     let keep_last_user_message = get_settings('keep_last_user_message')
     let first_to_inject = get_injection_threshold()
+    debug("FIRST TO INJECT: ", first_to_inject)
 
     let last_user_message_identified = false
     let short_limit_reached = false;
@@ -3931,6 +4007,7 @@ async function on_chat_event(event=null, data=null) {
         case 'chat_changed':  // chat was changed
             last_message_swiped = null;
             last_message = null;
+            reset_injection_threshold()
             auto_load_profile();  // load the profile for the current chat or character
             refresh_memory();  // refresh the memory state
             if (context?.chat?.length) {
@@ -4118,12 +4195,14 @@ function initialize_settings_listeners() {
 
     bind_setting('#block_chat', 'block_chat', 'boolean');
 
-    bind_setting('#summary_injection_separator', 'summary_injection_separator', 'text')
+    bind_setting('#summary_injection_separator', 'summary_injection_separator', 'text');
     bind_setting('#summary_injection_threshold', 'summary_injection_threshold', 'number');
+    bind_setting('input[name="summary_injection_threshold_type"]', 'summary_injection_threshold_type', 'text');
     bind_setting('#exclude_messages_after_threshold', 'exclude_messages_after_threshold', 'boolean');
-    bind_setting('#injection_threshold_update_delay', 'injection_threshold_update_delay', 'number')
-    bind_setting('#keep_last_user_message', 'keep_last_user_message', 'boolean')
-    bind_setting('#separate_long_term', 'separate_long_term', 'boolean');
+    bind_setting('#injection_threshold_update_trigger_messages', 'injection_threshold_update_trigger_messages', 'number');
+    bind_setting('#injection_threshold_update_trigger_summaries', 'injection_threshold_update_trigger_summaries', 'number')
+    bind_setting('#injection_threshold_update_trigger_context', 'injection_threshold_update_trigger_context', 'number')
+    bind_setting('#keep_last_user_message', 'keep_last_user_message', 'boolean');
 
     bind_setting('input[name="short_term_position"]', 'short_term_position', 'number');
     bind_setting('#short_term_depth', 'short_term_depth', 'number');
@@ -4132,6 +4211,7 @@ function initialize_settings_listeners() {
     bind_setting('#short_term_context_limit', 'short_term_context_limit', 'number')
     bind_setting('input[name="short_term_context_type"]', 'short_term_context_type', 'text')
 
+    bind_setting('#separate_long_term', 'separate_long_term', 'boolean');
     bind_setting('input[name="long_term_position"]', 'long_term_position', 'number');
     bind_setting('#long_term_depth', 'long_term_depth', 'number');
     bind_setting('#long_term_role', 'long_term_role');

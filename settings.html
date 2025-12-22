@@ -149,14 +149,27 @@
                     <input id="summary_injection_separator" class="text_pole" type="text" placeholder="" style="width: 3em">
                     <span>Summary Separator</span>
                 </label>
-                <label title="Summaries won't be injected until they are this many messages back in the chat (0 = start injecting summaries as soon as they are generated)." class="checkbox_label">
+
+
+                <label title="Summaries won't be injected until they are this far back in the chat (0 = start injecting summaries as soon as they are generated)." class="checkbox_label">
                     <input id="summary_injection_threshold" class="text_pole inline_setting" type="number" min="0" max="999" />
                     <span>Injection Threshold</span>
                 </label>
-                <label title="Delay updating the injection threshold by this many messages. As new messages are added, the injection threshold moves to keep up, which can invalidate the model's cache. By default, this occurs every message (0 = no delay). Increasing this number means that the injection threshold won't update every message, and instead remain at the same relative position in the chat history for that many messages. Updating less frequently (higher numbers) is helpful for keeping context unchanged for longer, thus reducing cache invalidation." class="checkbox_label">
-                    <input id="injection_threshold_update_delay" class="text_pole inline_setting" type="number" min="0" max="999" />
-                    <span>Update Delay</span>
-                </label>
+                <div style="margin-left: 3em;">
+                    <label title="threshold is placed after this many messages">
+                        <input type="radio" name="summary_injection_threshold_type" value="messages" />
+                        <span>msg</span>
+                    </label>
+                    <label title="threshold is placed after this many tokens (rounded down to nearest message)">
+                        <input type="radio" name="summary_injection_threshold_type" value="tokens" />
+                        <span>tk</span>
+                    </label>
+                    <label title="threshold is placed after message tokens reach this percent of max context (rounded down to nearest message)">
+                        <input type="radio" name="summary_injection_threshold_type" value="percent" />
+                        <span>%</span>
+                    </label>
+                </div>
+
                 <label title="All messages after the injection threshold will be removed from context, leaving only the summaries." class="checkbox_label">
                     <input id="exclude_messages_after_threshold" type="checkbox">
                     <span>Remove Messages</span>
@@ -165,10 +178,26 @@
                     <input id="keep_last_user_message" type="checkbox">
                     <span>Keep Last User Msg</span>
                 </label>
-                <label title="In Static Memory Mode, long-term memories are always injected separately from short-term memories, regardless of chronological order. This is in contrast to the default behavior where summaries are kept in short-term memory until the context fills up, then dynamically moved to long-term memory if marked as such." class="checkbox_label">
-                    <input id="separate_long_term" type="checkbox">
-                    <span>Static Memory Mode</span>
+
+                <label title="Only update the injection threshold when any of the following criteria are met. By default, each new chat message pushes an older message past the injection threshold, changing the injected content and potentially invalidating your prompt cache. The following options will mitigate this, instead freezing the threshold's relative position in the chat until any of the chosen triggers occur. This means that injected content will update less frequently, keeping context unchanged for longer and thus reducing the frequency of cache invalidation. You can also manually trigger an update with /qm-update-injection-threshold" class="checkbox_label">
+                    <span>Update Triggers:</span>
                 </label>
+                <div>
+                    <label title="Update when this many new messages are sent since last update (0 to disable)" style="margin-top: 0.5em;">
+                        <input id="injection_threshold_update_trigger_messages" class="text_pole inline_setting" type="number" min="0" max="999" />
+                        <span>new messages</span>
+                    </label>
+                    <br>
+                    <label title="Update when this many new summaries are added since last update (0 to disable)">
+                        <input id="injection_threshold_update_trigger_summaries" class="text_pole inline_setting" type="number" min="0" max="999" />
+                        <span>new summaries</span>
+                    </label>
+                    <br>
+                    <label title="Update when the previous prompt sent reaches this percent of max context (0 to disable)">
+                        <input id="injection_threshold_update_trigger_context" class="text_pole inline_setting" type="number" min="0" max="999" />
+                        <span>% context reached</span>
+                    </label>
+                </div>
 
 
                 <!-- Short-term memory -->
@@ -251,6 +280,10 @@
 
                 <!-- Long-term memory -->
                 <hr>
+                <label title="Long-term memories will be injected separately from short-term memories, regardless of chronological order. This is in contrast to the default behavior where summaries are kept in short-term memory until the context fills up, then dynamically moved to long-term memory if marked as such." class="checkbox_label">
+                    <input id="separate_long_term" type="checkbox">
+                    <span>Always Separate</span>
+                </label>
                 <h4 class="textAlignCenter">Long-Term Memory Injection <i class="fa-solid fa-info-circle" title="Determines where long-term messages are injected."></i></h4>
                 <div class="flex-container justifyspacebetween alignitemscenter">
                     <button id="edit_long_term_memory_prompt" class="menu_button flex1" title="Edit the long-term memory prompt"><span>Edit</span></button>

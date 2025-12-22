@@ -82,13 +82,15 @@ The extension will go back in your chat and look for any messages that need to b
 
 #### General Injection Settings
 - This controls how summaries are injected into your context (applies to both `short-term` and `long-term`)
-- Here the `Injection Threshold` setting controls how many messages to wait before summaries even start to be injected into your context.
-- You can then optionally remove the original messages from your context after that same threshold to free up space by selecting `Remove Messages After Threshold`.
-If you want to guarantee that your most recent user message will not be removed, select `Preserve Last User Message`.
-- By default, this threshold remains at the same number of messages back in your chat history. This means that every time you send a message, it moves up and could potentially inject a new summary. 
-If this invalidates your model's cache too frequently, you can reduce how often the threshold is moved by increasing the `Update Delay`. This means the threshold will stay at the same *relative* position in chat history for that many messages before catching up.
-- By default, all summaries will be included in `short-term` memory until they exceed the context limit, at which point they will be put into `long-term` memory if you have manually marked them as such. If instead you enable `Static Memory Mode`, marked summaries will instead always be put in `long-term` memory regardless of context. Be aware that this may put memories out of chronological order.
 - *Summary Separator* is what will be prefixed to each summary when injected into context. The default value of `\n*` means that each summary will be in a bullet-point list.
+- The `Injection Threshold` setting controls how many messages back in the chat to go before summaries even start to be injected into your context.
+- You can then optionally remove the original messages from your context after that same threshold to free up space by selecting `Remove Messages`.
+If you want to guarantee that your most recent user message will not be removed regardless of the threshold, select `Keep Last User Msg`.
+- By default, each new chat message pushes an older message past the injection threshold, potentially changing the injected content and invalidating your prompt cache.
+If this invalidates your model's cache too frequently, you can opt to freeze the injection threshold at its current location in your chat, only updating when certain conditions are met, specified by the `Update Triggers` settings.
+This means that no new summaries will be injected until one of the conditions is triggered, at which point the injection threshold will jump back up to the desired position.
+You can set triggers to update the injection threshold after a number of new messages, a number of new summaries, or if the previous prompt size reaches some percent of your max context.
+If multiple triggers are specified, any of them will trigger an update. You can also manually trigger an update using `/qm-update-injection-threshold`.
 
 #### Short-Term Memory Injection
 - These settings affect how `short-term` summaries are injected.
@@ -101,7 +103,9 @@ If this invalidates your model's cache too frequently, you can reduce how often 
 
 #### Long-Term Memory Injection
 - These settings affect how `long-term` summaries are injected.
-- Because `long-term` summaries are manually selected, there is no automatic inclusion criteria.
+- Because `long-term` summaries are manually selected, there is no automatic inclusion criteria. 
+- By default, all summaries will be placed in `short-term` memory until they exceed the `short-term` context limit, at which point they will either be discarded or moved to `long-term` memory if you have manually marked them as such.
+If instead you enable `Always Separate`, marked summaries will always be put in `long-term` memory regardless of short-term context. Be aware that this may put memories out of chronological order.
 - The `Context` determines how many tokens in your context all `long-term` summaries are allowed to take up. Once older summaries exceed this limit, they are removed from context completely.
 - You can also select where in your context to inject `long-term` summaries, or choose not to inject them at all (in which case you would need to use the `{{qm-long-term-memory}}` to manually put them into your context).
 - If you select the same injection position for both `short-term` and `long-term`, then `long-term` will be placed before `short-term`.
