@@ -3581,6 +3581,13 @@ function get_injection_threshold() {
     let summaries_trigger = get_settings('injection_threshold_update_trigger_summaries')  // update after this many new summaries
     let context_trigger = get_settings('injection_threshold_update_trigger_context')  // update after previous prompt reaches this percent of max context
     let base_index = (chat.length-1) - threshold  // What the index would be if we updated it right now
+    let threshold_reached = base_index >= 0
+
+    // Always start anchored to the end of the chat before the threshold is reachable
+    if (!threshold_reached) {
+        INJECTION_THRESHOLD_INDEX = chat.length
+        return INJECTION_THRESHOLD_INDEX
+    }
 
     // Check whether the threshold setting itself has changed
     let threshold_changed = false
@@ -3601,14 +3608,19 @@ function get_injection_threshold() {
         criteria_met = true  // If all triggers are disabled (0), then we should always update
     }
 
+    // If we just reached the threshold for the first time, allow the update to happen immediately.
+    if (!criteria_met && threshold_reached && INJECTION_THRESHOLD_INDEX === chat.length) {
+        criteria_met = true
+    }
+
     // Check whether we have enough messages to update
-    if (!criteria_met && messages_trigger > 0) {
-        criteria_met = (base_index - INJECTION_THRESHOLD_INDEX) >= message_trigger
-        if (criteria_met) debug(`Injection update triggered: New messages > ${message_trigger}`)
+    if (!criteria_met && threshold_reached && messages_trigger > 0) {
+        criteria_met = (base_index - INJECTION_THRESHOLD_INDEX) >= messages_trigger
+        if (criteria_met) debug(`Injection update triggered: New messages > ${messages_trigger}`)
     }
 
     // Check whether we have enough summaries ready to update
-    if (!criteria_met && summaries_trigger > 0 && (base_index - INJECTION_THRESHOLD_INDEX) >= summaries_trigger) {
+    if (!criteria_met && threshold_reached && summaries_trigger > 0 && (base_index - INJECTION_THRESHOLD_INDEX) >= summaries_trigger) {
         // check all messages after the current threshold for summaries
         let num_summaries = 0
         for (let i = INJECTION_THRESHOLD_INDEX; i <= base_index; i++) {
@@ -3624,7 +3636,7 @@ function get_injection_threshold() {
     }
 
     // Check whether the previous prompt has reached the context percent criteria
-    if (!criteria_met && context_trigger > 0) {
+    if (!criteria_met && threshold_reached && context_trigger > 0) {
         criteria_met = (100*get_last_prompt_size()/get_context_size()) >= context_trigger
         if (criteria_met) debug(`Injection update triggered: Previous prompt context > ${context_trigger}%`)
     }
@@ -3705,6 +3717,9 @@ function update_message_inclusion_flags() {
     let exclude_messages = get_settings('exclude_messages_after_threshold')
     let keep_last_user_message = get_settings('keep_last_user_message')
     let first_to_inject = get_injection_threshold()
+    if (first_to_inject === null || first_to_inject < 0 || first_to_inject > chat.length) {
+        first_to_inject = chat.length
+    }
     debug("FIRST TO INJECT: ", first_to_inject)
 
     let last_user_message_identified = false
