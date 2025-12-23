@@ -3608,6 +3608,7 @@ function get_injection_threshold() {
     // or all the trigger criteria are disabled
     // or we have triggered any of the update criteria
     let criteria_met = INJECTION_THRESHOLD_INDEX === null || threshold_changed || INJECTION_THRESHOLD_INDEX >= chat.length
+    let context_update_ready = false
     if (!criteria_met && messages_trigger <= 0 && summaries_trigger <= 0 && context_trigger <= 0) {
         criteria_met = true  // If all triggers are disabled (0), then we should always update
     }
@@ -3643,6 +3644,7 @@ function get_injection_threshold() {
     if (!criteria_met && threshold_reached && context_trigger > 0) {
         if (CONTEXT_TRIGGER_PENDING && chat.length > CONTEXT_TRIGGER_CHAT_LENGTH) {
             criteria_met = true
+            context_update_ready = true
             CONTEXT_TRIGGER_PENDING = false
             CONTEXT_TRIGGER_CHAT_LENGTH = null
             debug(`Injection update triggered: Context trigger pending and a new message arrived`)
@@ -3660,10 +3662,23 @@ function get_injection_threshold() {
     }
 
     if (criteria_met) {
-        INJECTION_THRESHOLD_INDEX = base_index
-        debug("Updated injection threshold index: ", base_index)
-        CONTEXT_TRIGGER_PENDING = false
-        CONTEXT_TRIGGER_CHAT_LENGTH = null
+        let next_index = base_index
+        let keep_context_pending = false
+        if (context_update_ready && messages_trigger > 0 && INJECTION_THRESHOLD_INDEX !== null) {
+            next_index = Math.min(INJECTION_THRESHOLD_INDEX + messages_trigger, base_index)
+            if (next_index < base_index) {
+                keep_context_pending = true
+            }
+        }
+        INJECTION_THRESHOLD_INDEX = next_index
+        debug("Updated injection threshold index: ", INJECTION_THRESHOLD_INDEX)
+        if (keep_context_pending) {
+            CONTEXT_TRIGGER_PENDING = true
+            CONTEXT_TRIGGER_CHAT_LENGTH = chat.length
+        } else {
+            CONTEXT_TRIGGER_PENDING = false
+            CONTEXT_TRIGGER_CHAT_LENGTH = null
+        }
     }
     return INJECTION_THRESHOLD_INDEX
 }
