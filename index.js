@@ -3558,6 +3558,8 @@ function get_character_key(message) {
 var INJECTION_THRESHOLD_INDEX = null;  // Index of the injection threshold, i.e. the first message index to inject
 var LAST_INJECTION_THRESHOLD = null;  // the last value of the injection threshold
 var LAST_INJECTION_THRESHOLD_TYPE = null;
+var CONTEXT_TRIGGER_PENDING = false;
+var CONTEXT_TRIGGER_CHAT_LENGTH = null;
 function get_injection_threshold() {
     // Update and return the injection threshold index
     let chat = getContext().chat
@@ -3586,6 +3588,8 @@ function get_injection_threshold() {
     // Always start anchored to the end of the chat before the threshold is reachable
     if (!threshold_reached) {
         INJECTION_THRESHOLD_INDEX = chat.length
+        CONTEXT_TRIGGER_PENDING = false
+        CONTEXT_TRIGGER_CHAT_LENGTH = null
         return INJECTION_THRESHOLD_INDEX
     }
 
@@ -3637,19 +3641,37 @@ function get_injection_threshold() {
 
     // Check whether the previous prompt has reached the context percent criteria
     if (!criteria_met && threshold_reached && context_trigger > 0) {
-        criteria_met = (100*get_last_prompt_size()/get_context_size()) >= context_trigger
-        if (criteria_met) debug(`Injection update triggered: Previous prompt context > ${context_trigger}%`)
+        if (CONTEXT_TRIGGER_PENDING && chat.length > CONTEXT_TRIGGER_CHAT_LENGTH) {
+            criteria_met = true
+            CONTEXT_TRIGGER_PENDING = false
+            CONTEXT_TRIGGER_CHAT_LENGTH = null
+            debug(`Injection update triggered: Context trigger pending and a new message arrived`)
+        } else {
+            let context_percent = (100 * get_last_prompt_size() / get_context_size())
+            if (context_percent >= context_trigger) {
+                CONTEXT_TRIGGER_PENDING = true
+                CONTEXT_TRIGGER_CHAT_LENGTH = chat.length
+                debug(`Context trigger armed: Previous prompt context > ${context_trigger}%`)
+            }
+        }
+    } else if (context_trigger <= 0) {
+        CONTEXT_TRIGGER_PENDING = false
+        CONTEXT_TRIGGER_CHAT_LENGTH = null
     }
 
     if (criteria_met) {
         INJECTION_THRESHOLD_INDEX = base_index
         debug("Updated injection threshold index: ", base_index)
+        CONTEXT_TRIGGER_PENDING = false
+        CONTEXT_TRIGGER_CHAT_LENGTH = null
     }
     return INJECTION_THRESHOLD_INDEX
 }
 function reset_injection_threshold() {
     log("Reset injection threshold")
     INJECTION_THRESHOLD_INDEX = null
+    CONTEXT_TRIGGER_PENDING = false
+    CONTEXT_TRIGGER_CHAT_LENGTH = null
 }
 function check_message_exclusion(message) {
     // check for any exclusion criteria for a given message based on current settings
