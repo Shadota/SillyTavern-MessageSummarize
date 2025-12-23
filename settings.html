@@ -183,7 +183,7 @@
                     <span>Update Triggers:</span>
                 </label>
                 <div>
-                    <label title="Update when this many new messages are sent since the last threshold update (0 to disable)" style="margin-top: 0.5em;">
+                    <label title="Update when this many new messages are sent since the last threshold update (0 to disable). For token-based thresholds, this also controls the batch size when trimming after the prompt exceeds the limit." style="margin-top: 0.5em;">
                         <input id="injection_threshold_update_trigger_messages" class="text_pole inline_setting" type="number" min="0" max="999" />
                         <span>new messages</span>
                     </label>
