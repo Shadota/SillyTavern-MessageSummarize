@@ -151,26 +151,26 @@
                 </label>
 
 
-                <label title="Summaries won't be injected until they are this far back in the chat (0 = start injecting summaries as soon as they are generated)." class="checkbox_label">
+                <label title="Summaries (and optional removals) only apply to messages that are this far back from the end of the chat. When update triggers are enabled, this cutoff stays frozen until a trigger fires (0 = start injecting summaries as soon as they are generated)." class="checkbox_label">
                     <input id="summary_injection_threshold" class="text_pole inline_setting" type="number" min="0" max="999" />
                     <span>Injection Threshold</span>
                 </label>
                 <div style="margin-left: 3em;">
-                    <label title="threshold is placed after this many messages">
+                    <label title="Cutoff is placed after this many messages from the end of the chat">
                         <input type="radio" name="summary_injection_threshold_type" value="messages" />
                         <span>msg</span>
                     </label>
-                    <label title="threshold is placed after this many tokens (rounded down to nearest message)">
+                    <label title="Cutoff is placed after this many tokens from the end of the chat (rounded down to nearest message)">
                         <input type="radio" name="summary_injection_threshold_type" value="tokens" />
                         <span>tk</span>
                     </label>
-                    <label title="threshold is placed after message tokens reach this percent of max context (rounded down to nearest message)">
+                    <label title="Cutoff is placed after message tokens reach this percent of max context (rounded down to nearest message)">
                         <input type="radio" name="summary_injection_threshold_type" value="percent" />
                         <span>%</span>
                     </label>
                 </div>
 
-                <label title="All messages after the injection threshold will be removed from context, leaving only the summaries." class="checkbox_label">
+                <label title="All messages beyond the cutoff will be removed from context when the threshold updates, leaving only summaries." class="checkbox_label">
                     <input id="exclude_messages_after_threshold" type="checkbox">
                     <span>Remove Messages</span>
                 </label>
@@ -179,16 +179,16 @@
                     <span>Keep Last User Msg</span>
                 </label>
 
-                <label title="Only update the injection threshold when any of the following criteria are met. By default, each new chat message pushes an older message past the injection threshold, changing the injected content and potentially invalidating your prompt cache. The following options will mitigate this, instead freezing the threshold's relative position in the chat until any of the chosen triggers occur. This means that injected content will update less frequently, keeping context unchanged for longer and thus reducing the frequency of cache invalidation. You can also manually trigger an update with /qm-update-injection-threshold" class="checkbox_label">
+                <label title="Freeze the cutoff position until any trigger fires. This keeps injected summaries and removals unchanged between updates, reducing cache invalidations. When a trigger fires, the cutoff snaps back to the configured threshold relative to the latest message. You can also manually trigger an update with /qm-update-injection-threshold." class="checkbox_label">
                     <span>Update Triggers:</span>
                 </label>
                 <div>
-                    <label title="Update when this many new messages are sent since last update (0 to disable)" style="margin-top: 0.5em;">
+                    <label title="Update when this many new messages are sent since the last threshold update (0 to disable)" style="margin-top: 0.5em;">
                         <input id="injection_threshold_update_trigger_messages" class="text_pole inline_setting" type="number" min="0" max="999" />
                         <span>new messages</span>
                     </label>
                     <br>
-                    <label title="Update when this many new summaries are added since last update (0 to disable)">
+                    <label title="Update when this many new summaries are added since the last threshold update (0 to disable)">
                         <input id="injection_threshold_update_trigger_summaries" class="text_pole inline_setting" type="number" min="0" max="999" />
                         <span>new summaries</span>
                     </label>
