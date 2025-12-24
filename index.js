@@ -3638,9 +3638,6 @@ function get_injection_threshold() {
                     let reduction_total = 0
                     for (let i = next_index; i < step_end; i++) {
                         let message = chat[i]
-                        if (get_data(message, 'lagging') === false) {
-                            continue
-                        }
                         let message_tokens = count_tokens(message.mes)
                         let summary = get_memory(message)
                         let summary_tokens = summary && check_message_exclusion(message)
