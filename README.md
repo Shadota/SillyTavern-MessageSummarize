@@ -83,7 +83,7 @@ The extension will go back in your chat and look for any messages that need to b
 #### General Injection Settings
 - This controls how summaries are injected into your context (applies to both `short-term` and `long-term`)
 - *Summary Separator* is what will be prefixed to each summary when injected into context. The default value of `\n*` means that each summary will be in a bullet-point list.
-- The `Injection Threshold` setting controls how many messages back in the chat to go before summaries even start to be injected into your context.
+- The `Injection Threshold` setting controls how far back from the end of the chat summaries start to be injected into your context.
 - You can then optionally remove the original messages from your context after that same threshold to free up space by selecting `Remove Messages`.
 If you want to guarantee that your most recent user message will not be removed regardless of the threshold, select `Keep Last User Msg`.
 - By default, each new chat message pushes an older message past the injection threshold, potentially changing the injected content and invalidating your prompt cache.
@@ -92,10 +92,11 @@ This means that no new summaries will be injected until one of the conditions is
 You can set triggers to update the injection threshold after a number of new messages, a number of new summaries, or if the previous prompt size reaches some percent of your max context.
 If multiple triggers are specified, any of them will trigger an update. You can also manually trigger an update using `/qm-update-injection-threshold`.
 
-**Example: batching 20 removals after hitting message 115**
-- Decide how many non-summarized messages you want to keep after each batch. If you want to clear 20 messages every time you grow to 115, set `Injection Threshold` to `95` (115 target size minus the 20-message batch). This keeps the newest 95 messages untouched after each update.
-- Enable `Update Triggers` and set `New Messages Since Update` to `20` (or `Previous Prompt >=` a context percentage that roughly equals 20 new turns for your model). The trigger will only start counting once you have enough messages to reach the threshold.
-- To line up the first batch with a later point in the chat (e.g., message 115), wait until that spot (or just before it) and then run `/qm-update-injection-threshold` to anchor the threshold there. The next 20 messages will trip the trigger, moving the cutoff forward by 20 and summarizing/removing everything beyond it in one go, restoring a 20-message buffer before the next cycle.
+**Example: keep the newest 20 full messages while trimming back under 48k tokens**
+- Set `Injection Threshold` to `48000` and select `tk` (or choose `%` if you want a percent of max context).
+- Enable `Remove Messages`.
+- Set `Update Triggers -> New Messages Since Update` to `20` to define the batch size and minimum number of full messages to keep.
+- When the previous prompt exceeds 48k tokens, the cutoff advances in 20-message batches until the prompt is back under 48k, while keeping at least the newest 20 full messages.
 
 #### Short-Term Memory Injection
 - These settings affect how `short-term` summaries are injected.
