@@ -3601,8 +3601,8 @@ function get_injection_threshold() {
     if (exclude_messages && (batch_messages > 0 || batch_tokens > 0)) {
         let min_keep_messages = Math.max(batch_messages, 1)
         let current_index = INJECTION_THRESHOLD_INDEX ?? base_index
-        let next_index = current_index
         let max_index = Math.max(chat.length - min_keep_messages, 0)
+        let next_index = Math.min(current_index, max_index)
 
         if (threshold_type === 'messages') {
             let keep_limit = Math.max(threshold_value, min_keep_messages)
