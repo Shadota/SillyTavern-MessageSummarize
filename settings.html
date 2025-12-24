@@ -151,7 +151,7 @@
                 </label>
 
 
-                <label title="Summaries (and optional removals) only apply to messages that are this far back from the end of the chat. With Remove Messages enabled, you can trim in batches when the prompt exceeds this limit (0 = start injecting summaries as soon as they are generated)." class="checkbox_label">
+                <label title="Summaries (and optional removals) only apply to messages that are this far back from the end of the chat. For token/percent thresholds with Remove Messages enabled, the total prompt is trimmed in batches until it fits under this limit (0 = start injecting summaries as soon as they are generated)." class="checkbox_label">
                     <input id="summary_injection_threshold" class="text_pole inline_setting" type="number" min="0" max="999" />
                     <span>Injection Threshold</span>
                 </label>
@@ -163,6 +163,10 @@
                     <label title="Cutoff is placed after this many tokens from the end of the chat (rounded down to nearest message)">
                         <input type="radio" name="summary_injection_threshold_type" value="tokens" />
                         <span>tk</span>
+                    </label>
+                    <label title="Cutoff is placed after message tokens reach this percent of max context (rounded down to nearest message)">
+                        <input type="radio" name="summary_injection_threshold_type" value="percent" />
+                        <span>%</span>
                     </label>
                 </div>
 

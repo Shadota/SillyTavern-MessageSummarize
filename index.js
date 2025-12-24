@@ -3635,6 +3635,7 @@ function get_injection_threshold() {
                     } else {
                         step_end = Math.min(next_index + batch_messages, max_index)
                     }
+                    let reduction_total = 0
                     for (let i = next_index; i < step_end; i++) {
                         let message = chat[i]
                         if (get_data(message, 'lagging') === false) {
@@ -3646,8 +3647,12 @@ function get_injection_threshold() {
                             ? count_tokens(summary) + sep_size
                             : 0
                         let reduction = Math.max(message_tokens - summary_tokens, 0)
-                        prompt_size -= reduction
+                        reduction_total += reduction
                     }
+                    if (reduction_total <= 0) {
+                        break
+                    }
+                    prompt_size -= reduction_total
                     next_index = step_end
                 }
             }
