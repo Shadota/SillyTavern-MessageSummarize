@@ -151,7 +151,7 @@
                 </label>
 
 
-                <label title="Summaries (and optional removals) only apply to messages that are this far back from the end of the chat. With token/percent thresholds plus Remove Messages + New Messages, the cutoff advances in batches whenever the previous prompt exceeds the limit (0 = start injecting summaries as soon as they are generated)." class="checkbox_label">
+                <label title="Summaries (and optional removals) only apply to messages that are this far back from the end of the chat. With Remove Messages enabled, you can trim in batches when the prompt exceeds this limit (0 = start injecting summaries as soon as they are generated)." class="checkbox_label">
                     <input id="summary_injection_threshold" class="text_pole inline_setting" type="number" min="0" max="999" />
                     <span>Injection Threshold</span>
                 </label>
@@ -164,10 +164,6 @@
                         <input type="radio" name="summary_injection_threshold_type" value="tokens" />
                         <span>tk</span>
                     </label>
-                    <label title="Cutoff is placed after message tokens reach this percent of max context (rounded down to nearest message)">
-                        <input type="radio" name="summary_injection_threshold_type" value="percent" />
-                        <span>%</span>
-                    </label>
                 </div>
 
                 <label title="All messages beyond the cutoff will be removed from context when the threshold updates, leaving only summaries." class="checkbox_label">
@@ -179,23 +175,18 @@
                     <span>Keep Last User Msg</span>
                 </label>
 
-                <label title="Freeze the cutoff position until any trigger fires. This keeps injected summaries and removals unchanged between updates, reducing cache invalidations. When a trigger fires, the cutoff snaps back to the configured threshold relative to the latest message. For token/percent thresholds with Remove Messages + New Messages, the cutoff advances in batches until the prompt is under the limit. You can also manually trigger an update with /qm-update-injection-threshold." class="checkbox_label">
-                    <span>Update Triggers:</span>
+                <label title="Trim in batches when the prompt exceeds the injection threshold. Batch sizes are ignored unless Remove Messages is enabled." class="checkbox_label">
+                    <span>Batch Trimming:</span>
                 </label>
                 <div>
-                    <label title="Update when this many new messages are sent since the last threshold update (0 to disable). For token/percent thresholds with Remove Messages, this is the batch size and minimum number of full messages kept during trimming." style="margin-top: 0.5em;">
+                    <label title="Trim in batches of this many messages (0 to disable). This also sets the minimum number of full messages kept." style="margin-top: 0.5em;">
                         <input id="injection_threshold_update_trigger_messages" class="text_pole inline_setting" type="number" min="0" max="999" />
-                        <span>new messages</span>
+                        <span>batch messages</span>
                     </label>
                     <br>
-                    <label title="Update when this many new summaries are added since the last threshold update (0 to disable)">
+                    <label title="Trim in batches of this many tokens (0 to disable). If set, this overrides batch messages for trimming size.">
                         <input id="injection_threshold_update_trigger_summaries" class="text_pole inline_setting" type="number" min="0" max="999" />
-                        <span>new summaries</span>
-                    </label>
-                    <br>
-                    <label title="Update when the previous prompt sent reaches this percent of max context (0 to disable). This arms the trigger, and the cutoff updates on the next message. If a new-messages trigger is set, the cutoff advances in batches of that size until it catches up.">
-                        <input id="injection_threshold_update_trigger_context" class="text_pole inline_setting" type="number" min="0" max="999" />
-                        <span>% context reached</span>
+                        <span>batch tokens</span>
                     </label>
                 </div>
 

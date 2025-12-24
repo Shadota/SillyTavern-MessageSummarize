@@ -134,9 +134,9 @@ const default_settings = {
     summary_injection_threshold_type: "messages",  // messages, tokens, percent
     exclude_messages_after_threshold: true,    // remove messages from context after the injection threshold
     keep_last_user_message: true,  // keep the most recent user message in context
-    injection_threshold_update_trigger_messages: 0,  // update threshold when this many new messages are sent
-    injection_threshold_update_trigger_summaries: 0,  // update threshold when this many new summaries are ready
-    injection_threshold_update_trigger_context: 0,  // update threshold when the last prompt reched this percent of max context
+    injection_threshold_update_trigger_messages: 0,  // trim in batches of this many messages
+    injection_threshold_update_trigger_summaries: 0,  // trim in batches of this many tokens
+    injection_threshold_update_trigger_context: 0,  // deprecated (unused)
 
     long_template: default_long_template,
     long_term_context_limit: 10,  // context size to use as long-term memory limit
@@ -3558,10 +3558,6 @@ function get_character_key(message) {
 var INJECTION_THRESHOLD_INDEX = null;  // Index of the injection threshold, i.e. the first message index to inject
 var LAST_INJECTION_THRESHOLD = null;  // the last value of the injection threshold
 var LAST_INJECTION_THRESHOLD_TYPE = null;
-var CONTEXT_TRIGGER_PENDING = false;
-var CONTEXT_TRIGGER_CHAT_LENGTH = null;
-var PROMPT_SIZE_TRIGGER_PENDING = false;
-var PROMPT_SIZE_TRIGGER_CHAT_LENGTH = null;
 function get_injection_threshold() {
     // Update and return the injection threshold index
     let chat = getContext().chat
@@ -3581,9 +3577,8 @@ function get_injection_threshold() {
         debug("Calculated injection threshold: ", threshold)
     }
 
-    let messages_trigger = get_settings('injection_threshold_update_trigger_messages')  // update after this many new messages
-    let summaries_trigger = get_settings('injection_threshold_update_trigger_summaries')  // update after this many new summaries
-    let context_trigger = get_settings('injection_threshold_update_trigger_context')  // update after previous prompt reaches this percent of max context
+    let batch_messages = get_settings('injection_threshold_update_trigger_messages')  // trim in batches of this many messages
+    let batch_tokens = get_settings('injection_threshold_update_trigger_summaries')  // trim in batches of this many tokens
     let prompt_token_trigger = threshold_type !== 'messages' ? threshold_value : 0
     let base_index = (chat.length-1) - threshold  // What the index would be if we updated it right now
     let threshold_reached = base_index >= 0
@@ -3591,10 +3586,6 @@ function get_injection_threshold() {
     // Always start anchored to the end of the chat before the threshold is reachable
     if (!threshold_reached) {
         INJECTION_THRESHOLD_INDEX = chat.length
-        CONTEXT_TRIGGER_PENDING = false
-        CONTEXT_TRIGGER_CHAT_LENGTH = null
-        PROMPT_SIZE_TRIGGER_PENDING = false
-        PROMPT_SIZE_TRIGGER_CHAT_LENGTH = null
         return INJECTION_THRESHOLD_INDEX
     }
 
@@ -3607,156 +3598,63 @@ function get_injection_threshold() {
     }
 
     let exclude_messages = get_settings('exclude_messages_after_threshold')
-    let min_keep_messages = Math.max(messages_trigger, 0)
+    if (exclude_messages && (batch_messages > 0 || batch_tokens > 0)) {
+        let min_keep_messages = Math.max(batch_messages, 1)
+        let current_index = INJECTION_THRESHOLD_INDEX ?? base_index
+        let next_index = current_index
+        let max_index = Math.max(chat.length - min_keep_messages, 0)
 
-    // Enforce prompt-size batching for token/percent thresholds when trimming is enabled.
-    if (prompt_token_trigger > 0 && messages_trigger > 0 && exclude_messages) {
-        let prompt_size = get_last_prompt_size()
-        if (prompt_size > prompt_token_trigger) {
-            let current_index = INJECTION_THRESHOLD_INDEX ?? base_index
-            let max_index = Math.max(chat.length - min_keep_messages, 0)
-            let next_index = Math.min(current_index, max_index)
-            while (prompt_size > prompt_token_trigger && next_index < max_index) {
-                let step_end = Math.min(next_index + messages_trigger, max_index)
-                for (let i = next_index; i < step_end; i++) {
-                    prompt_size -= count_tokens(chat[i].mes)
+        if (threshold_type === 'messages') {
+            let keep_limit = Math.max(threshold_value, min_keep_messages)
+            max_index = Math.max(chat.length - keep_limit, 0)
+            while ((chat.length - next_index) > keep_limit && next_index < max_index) {
+                if (batch_tokens > 0) {
+                    let tokens = 0
+                    let i = next_index
+                    while (i < max_index && tokens < batch_tokens) {
+                        tokens += count_tokens(chat[i].mes)
+                        i += 1
+                    }
+                    next_index = i
+                } else {
+                    next_index = Math.min(next_index + batch_messages, max_index)
                 }
-                next_index = step_end
             }
-            INJECTION_THRESHOLD_INDEX = next_index
-            debug("Updated injection threshold index (prompt-size batching): ", INJECTION_THRESHOLD_INDEX)
-            return INJECTION_THRESHOLD_INDEX
-        }
-    }
-
-    // set to the index of the desired threshold if:
-    // the current index is null
-    // or the threshold changed
-    // or the current threshold is not a valid index (larger than the chat)
-    // or all the trigger criteria are disabled
-    // or we have triggered any of the update criteria
-    let criteria_met = INJECTION_THRESHOLD_INDEX === null || threshold_changed || INJECTION_THRESHOLD_INDEX >= chat.length
-    let context_update_ready = false
-    let prompt_size_update_ready = false
-    if (!criteria_met && messages_trigger <= 0 && summaries_trigger <= 0 && context_trigger <= 0) {
-        criteria_met = true  // If all triggers are disabled (0), then we should always update
-    }
-
-    // If we just reached the threshold for the first time, allow the update to happen immediately.
-    if (!criteria_met && threshold_reached && INJECTION_THRESHOLD_INDEX === chat.length) {
-        criteria_met = true
-    }
-
-    // Check whether we have enough messages to update
-    if (!criteria_met && threshold_reached && messages_trigger > 0) {
-        criteria_met = (base_index - INJECTION_THRESHOLD_INDEX) >= messages_trigger
-        if (criteria_met) debug(`Injection update triggered: New messages > ${messages_trigger}`)
-    }
-
-    // Check whether we have enough summaries ready to update
-    if (!criteria_met && threshold_reached && summaries_trigger > 0 && (base_index - INJECTION_THRESHOLD_INDEX) >= summaries_trigger) {
-        // check all messages after the current threshold for summaries
-        let num_summaries = 0
-        for (let i = INJECTION_THRESHOLD_INDEX; i <= base_index; i++) {
-            let message = chat[i]
-            if (!get_memory(message) || !check_message_exclusion(message)) continue;
-            num_summaries += 1  // has a potentially included summary
-            criteria_met = num_summaries >= summaries_trigger
-            if (criteria_met) {
-                debug(`Injection update triggered: New summaries > ${summaries_trigger}`)
-                break;
-            }
-        }
-    }
-
-    // Check whether the previous prompt has reached the context percent criteria
-    if (!criteria_met && threshold_reached && context_trigger > 0) {
-        if (CONTEXT_TRIGGER_PENDING && chat.length > CONTEXT_TRIGGER_CHAT_LENGTH) {
-            criteria_met = true
-            context_update_ready = true
-            CONTEXT_TRIGGER_PENDING = false
-            CONTEXT_TRIGGER_CHAT_LENGTH = null
-            debug(`Injection update triggered: Context trigger pending and a new message arrived`)
-        } else {
-            let context_percent = (100 * get_last_prompt_size() / get_context_size())
-            if (context_percent >= context_trigger) {
-                CONTEXT_TRIGGER_PENDING = true
-                CONTEXT_TRIGGER_CHAT_LENGTH = chat.length
-                debug(`Context trigger armed: Previous prompt context > ${context_trigger}%`)
-            }
-        }
-    } else if (context_trigger <= 0) {
-        CONTEXT_TRIGGER_PENDING = false
-        CONTEXT_TRIGGER_CHAT_LENGTH = null
-    }
-
-    if (threshold_reached && context_trigger <= 0 && messages_trigger > 0 && prompt_token_trigger > 0) {
-        if (PROMPT_SIZE_TRIGGER_PENDING && chat.length > PROMPT_SIZE_TRIGGER_CHAT_LENGTH) {
-            prompt_size_update_ready = true
-            PROMPT_SIZE_TRIGGER_PENDING = false
-            PROMPT_SIZE_TRIGGER_CHAT_LENGTH = null
-            debug(`Injection update triggered: Prompt size pending and a new message arrived`)
-        } else if (!PROMPT_SIZE_TRIGGER_PENDING) {
-            let last_prompt_size = get_last_prompt_size()
-            if (last_prompt_size >= prompt_token_trigger) {
-                PROMPT_SIZE_TRIGGER_PENDING = true
-                PROMPT_SIZE_TRIGGER_CHAT_LENGTH = chat.length
-                debug(`Prompt size trigger armed: Previous prompt size > ${prompt_token_trigger} tokens`)
-            }
-        }
-    } else if (prompt_token_trigger <= 0 || messages_trigger <= 0) {
-        PROMPT_SIZE_TRIGGER_PENDING = false
-        PROMPT_SIZE_TRIGGER_CHAT_LENGTH = null
-    }
-
-    criteria_met = criteria_met || prompt_size_update_ready
-    if (criteria_met) {
-        let next_index = base_index
-        let keep_context_pending = false
-        if (context_update_ready && messages_trigger > 0 && INJECTION_THRESHOLD_INDEX !== null) {
-            next_index = Math.min(INJECTION_THRESHOLD_INDEX + messages_trigger, base_index)
-            if (next_index < base_index) {
-                keep_context_pending = true
-            }
-        }
-        if (prompt_size_update_ready && messages_trigger > 0) {
-            let exclude_messages = get_settings('exclude_messages_after_threshold')
-            let current_index = INJECTION_THRESHOLD_INDEX === null ? base_index : INJECTION_THRESHOLD_INDEX
+        } else if (prompt_token_trigger > 0) {
             let prompt_size = get_last_prompt_size()
-            next_index = current_index
-            while (prompt_size > prompt_token_trigger && next_index < chat.length) {
-                let step_end = Math.min(next_index + messages_trigger, chat.length)
-                if (exclude_messages) {
+            if (prompt_size > prompt_token_trigger) {
+                while (prompt_size > prompt_token_trigger && next_index < max_index) {
+                    let step_end = next_index
+                    if (batch_tokens > 0) {
+                        let tokens = 0
+                        while (step_end < max_index && tokens < batch_tokens) {
+                            tokens += count_tokens(chat[step_end].mes)
+                            step_end += 1
+                        }
+                    } else {
+                        step_end = Math.min(next_index + batch_messages, max_index)
+                    }
                     for (let i = next_index; i < step_end; i++) {
                         prompt_size -= count_tokens(chat[i].mes)
                     }
+                    next_index = step_end
                 }
-                next_index = step_end
-                if (!exclude_messages) break
             }
-            next_index = Math.max(next_index, current_index)
         }
-        INJECTION_THRESHOLD_INDEX = next_index
-        debug("Updated injection threshold index: ", INJECTION_THRESHOLD_INDEX)
-        if (keep_context_pending) {
-            CONTEXT_TRIGGER_PENDING = true
-            CONTEXT_TRIGGER_CHAT_LENGTH = chat.length
-        } else {
-            CONTEXT_TRIGGER_PENDING = false
-            CONTEXT_TRIGGER_CHAT_LENGTH = null
-        }
-        PROMPT_SIZE_TRIGGER_PENDING = false
-        PROMPT_SIZE_TRIGGER_CHAT_LENGTH = null
+
+        INJECTION_THRESHOLD_INDEX = Math.max(next_index, current_index)
+        debug("Updated injection threshold index (batch trim): ", INJECTION_THRESHOLD_INDEX)
+        return INJECTION_THRESHOLD_INDEX
     }
+
+    INJECTION_THRESHOLD_INDEX = threshold_changed || INJECTION_THRESHOLD_INDEX === null || INJECTION_THRESHOLD_INDEX >= chat.length
+        ? base_index
+        : INJECTION_THRESHOLD_INDEX
     return INJECTION_THRESHOLD_INDEX
 }
 function reset_injection_threshold() {
     log("Reset injection threshold")
     INJECTION_THRESHOLD_INDEX = null
-    CONTEXT_TRIGGER_PENDING = false
-    CONTEXT_TRIGGER_CHAT_LENGTH = null
-    PROMPT_SIZE_TRIGGER_PENDING = false
-    PROMPT_SIZE_TRIGGER_CHAT_LENGTH = null
 }
 function check_message_exclusion(message) {
     // check for any exclusion criteria for a given message based on current settings
@@ -4323,7 +4221,6 @@ function initialize_settings_listeners() {
     bind_setting('#exclude_messages_after_threshold', 'exclude_messages_after_threshold', 'boolean');
     bind_setting('#injection_threshold_update_trigger_messages', 'injection_threshold_update_trigger_messages', 'number');
     bind_setting('#injection_threshold_update_trigger_summaries', 'injection_threshold_update_trigger_summaries', 'number')
-    bind_setting('#injection_threshold_update_trigger_context', 'injection_threshold_update_trigger_context', 'number')
     bind_setting('#keep_last_user_message', 'keep_last_user_message', 'boolean');
 
     bind_setting('input[name="short_term_position"]', 'short_term_position', 'number');
