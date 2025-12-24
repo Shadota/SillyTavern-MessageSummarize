@@ -3606,6 +3606,29 @@ function get_injection_threshold() {
         threshold_changed = true
     }
 
+    let exclude_messages = get_settings('exclude_messages_after_threshold')
+    let min_keep_messages = Math.max(messages_trigger, 0)
+
+    // Enforce prompt-size batching for token/percent thresholds when trimming is enabled.
+    if (prompt_token_trigger > 0 && messages_trigger > 0 && exclude_messages) {
+        let prompt_size = get_last_prompt_size()
+        if (prompt_size > prompt_token_trigger) {
+            let current_index = INJECTION_THRESHOLD_INDEX ?? base_index
+            let max_index = Math.max(chat.length - min_keep_messages, 0)
+            let next_index = Math.min(current_index, max_index)
+            while (prompt_size > prompt_token_trigger && next_index < max_index) {
+                let step_end = Math.min(next_index + messages_trigger, max_index)
+                for (let i = next_index; i < step_end; i++) {
+                    prompt_size -= count_tokens(chat[i].mes)
+                }
+                next_index = step_end
+            }
+            INJECTION_THRESHOLD_INDEX = next_index
+            debug("Updated injection threshold index (prompt-size batching): ", INJECTION_THRESHOLD_INDEX)
+            return INJECTION_THRESHOLD_INDEX
+        }
+    }
+
     // set to the index of the desired threshold if:
     // the current index is null
     // or the threshold changed
