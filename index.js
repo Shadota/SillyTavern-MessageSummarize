@@ -3621,6 +3621,8 @@ function get_injection_threshold() {
                 }
             }
         } else if (prompt_token_trigger > 0) {
+            current_index = INJECTION_THRESHOLD_INDEX ?? 0
+            next_index = Math.min(current_index, max_index)
             let prompt_size = get_last_prompt_size()
             let sep_size = calculate_injection_separator_size()
             if (prompt_size > prompt_token_trigger) {
