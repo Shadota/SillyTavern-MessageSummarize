@@ -3622,6 +3622,7 @@ function get_injection_threshold() {
             }
         } else if (prompt_token_trigger > 0) {
             let prompt_size = get_last_prompt_size()
+            let sep_size = calculate_injection_separator_size()
             if (prompt_size > prompt_token_trigger) {
                 while (prompt_size > prompt_token_trigger && next_index < max_index) {
                     let step_end = next_index
@@ -3635,7 +3636,14 @@ function get_injection_threshold() {
                         step_end = Math.min(next_index + batch_messages, max_index)
                     }
                     for (let i = next_index; i < step_end; i++) {
-                        prompt_size -= count_tokens(chat[i].mes)
+                        let message = chat[i]
+                        let message_tokens = count_tokens(message.mes)
+                        let summary = get_memory(message)
+                        let summary_tokens = summary && check_message_exclusion(message)
+                            ? count_tokens(summary) + sep_size
+                            : 0
+                        let reduction = Math.max(message_tokens - summary_tokens, 0)
+                        prompt_size -= reduction
                     }
                     next_index = step_end
                 }
