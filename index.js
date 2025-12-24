@@ -3697,8 +3697,21 @@ function get_injection_threshold() {
             }
         }
         if (prompt_size_update_ready && messages_trigger > 0) {
+            let exclude_messages = get_settings('exclude_messages_after_threshold')
             let current_index = INJECTION_THRESHOLD_INDEX === null ? base_index : INJECTION_THRESHOLD_INDEX
-            next_index = Math.min(current_index + messages_trigger, chat.length)
+            let prompt_size = get_last_prompt_size()
+            next_index = current_index
+            while (prompt_size > prompt_token_trigger && next_index < chat.length) {
+                let step_end = Math.min(next_index + messages_trigger, chat.length)
+                if (exclude_messages) {
+                    for (let i = next_index; i < step_end; i++) {
+                        prompt_size -= count_tokens(chat[i].mes)
+                    }
+                }
+                next_index = step_end
+                if (!exclude_messages) break
+            }
+            next_index = Math.max(next_index, current_index)
         }
         INJECTION_THRESHOLD_INDEX = next_index
         debug("Updated injection threshold index: ", INJECTION_THRESHOLD_INDEX)
