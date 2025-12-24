@@ -3667,14 +3667,13 @@ function get_injection_threshold() {
         CONTEXT_TRIGGER_CHAT_LENGTH = null
     }
 
-    if (!criteria_met && threshold_reached && context_trigger <= 0 && messages_trigger > 0 && prompt_token_trigger > 0) {
+    if (threshold_reached && context_trigger <= 0 && messages_trigger > 0 && prompt_token_trigger > 0) {
         if (PROMPT_SIZE_TRIGGER_PENDING && chat.length > PROMPT_SIZE_TRIGGER_CHAT_LENGTH) {
-            criteria_met = true
             prompt_size_update_ready = true
             PROMPT_SIZE_TRIGGER_PENDING = false
             PROMPT_SIZE_TRIGGER_CHAT_LENGTH = null
             debug(`Injection update triggered: Prompt size pending and a new message arrived`)
-        } else {
+        } else if (!PROMPT_SIZE_TRIGGER_PENDING) {
             let last_prompt_size = get_last_prompt_size()
             if (last_prompt_size >= prompt_token_trigger) {
                 PROMPT_SIZE_TRIGGER_PENDING = true
@@ -3687,6 +3686,7 @@ function get_injection_threshold() {
         PROMPT_SIZE_TRIGGER_CHAT_LENGTH = null
     }
 
+    criteria_met = criteria_met || prompt_size_update_ready
     if (criteria_met) {
         let next_index = base_index
         let keep_context_pending = false
