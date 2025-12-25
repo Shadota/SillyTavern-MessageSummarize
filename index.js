@@ -205,7 +205,7 @@ function get_context_size() {
 }
 function get_last_prompt_size() {
     // return the size in tokens of the last message's prompt
-    let raw_prompt = get_full_prompt_raw()
+    let raw_prompt = get_last_prompt_raw()
     if (raw_prompt === undefined) {
         debug('Could not find raw prompt for last message prompt')
         return 0
@@ -218,7 +218,22 @@ function normalize_raw_prompt(raw_prompt) {
     }
     return raw_prompt
 }
-function get_full_prompt_raw() {
+function get_last_prompt_raw() {
+    let last_index = getContext().chat.length - 1
+    let raw_prompt = undefined
+    for (let i = itemizedPrompts.length - 1; i >= 0; i--) {
+        let itemized_prompt = itemizedPrompts[i]
+        if (itemized_prompt.mesId === last_index) {
+            raw_prompt = itemized_prompt.rawPrompt
+            break
+        }
+    }
+    if (raw_prompt === undefined) {
+        return get_largest_prompt_raw()
+    }
+    return normalize_raw_prompt(raw_prompt)
+}
+function get_largest_prompt_raw() {
     let best_prompt = undefined
     let best_tokens = -1
     for (let i = 0; i < itemizedPrompts.length; i++) {
@@ -3720,7 +3735,7 @@ function get_injection_threshold() {
                 user: count_tokens(PROMPT_HEADER_USER),
                 assistant: count_tokens(PROMPT_HEADER_ASSISTANT),
             }
-            let last_raw_prompt = get_full_prompt_raw()
+            let last_raw_prompt = get_last_prompt_raw()
             let prompt_chat_tokens_source = 'raw_prompt'
             let prompt_chat_tokens = get_prompt_chat_tokens_from_raw(last_raw_prompt)
             if (prompt_chat_tokens === null) {
