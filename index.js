@@ -3703,7 +3703,30 @@ function get_injection_threshold() {
                 }
             }
 
-            function estimate_message_prompt_tokens(message) {
+            function build_message_token_map() {
+                let map = new Map()
+                for (let i = 0; i < itemizedPrompts.length; i++) {
+                    let itemized_prompt = itemizedPrompts[i]
+                    if (itemized_prompt?.mesId === undefined || itemized_prompt?.mesId === null) {
+                        continue
+                    }
+                    let token_count = itemized_prompt?.tokenCount
+                    if (token_count === undefined) {
+                        let raw_prompt = itemized_prompt?.rawPrompt
+                        if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
+                        token_count = count_tokens(raw_prompt ?? '')
+                    }
+                    let existing = map.get(itemized_prompt.mesId) ?? 0
+                    map.set(itemized_prompt.mesId, existing + token_count)
+                }
+                return map
+            }
+            let message_token_map = build_message_token_map()
+            function estimate_message_prompt_tokens(message, index) {
+                let mapped = message_token_map.get(index)
+                if (mapped !== undefined) {
+                    return mapped
+                }
                 let role_header_tokens = message.is_user ? prompt_header_tokens.user : prompt_header_tokens.assistant
                 return count_tokens(message.mes) + role_header_tokens
             }
@@ -3723,7 +3746,7 @@ function get_injection_threshold() {
                     let message = chat[i]
                     let kept = i >= start_index || i === last_user_index
                     if (kept) {
-                        total += estimate_message_prompt_tokens(message)
+                        total += estimate_message_prompt_tokens(message, i)
                         continue
                     }
                     let summary = get_memory(message)
@@ -3742,6 +3765,7 @@ function get_injection_threshold() {
                     total_prompt_tokens,
                     prompt_chat_tokens,
                     prompt_chat_tokens_source,
+                    message_token_source: message_token_map.size > 0 ? 'itemized_prompts' : 'fallback_text',
                     non_chat_budget,
                     current_chat_size,
                     current_index,
@@ -3758,7 +3782,7 @@ function get_injection_threshold() {
                     if (batch_tokens > 0) {
                         let tokens = 0
                         while (step_end < max_index && tokens < batch_tokens) {
-                            tokens += estimate_message_prompt_tokens(chat[step_end])
+                            tokens += estimate_message_prompt_tokens(chat[step_end], step_end)
                             step_end += 1
                         }
                     } else {
