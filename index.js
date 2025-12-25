@@ -3623,10 +3623,39 @@ function get_injection_threshold() {
         } else if (prompt_token_trigger > 0) {
             current_index = INJECTION_THRESHOLD_INDEX ?? 0
             next_index = Math.min(current_index, max_index)
-            let prompt_size = get_last_prompt_size()
             let sep_size = calculate_injection_separator_size()
-            if (prompt_size > prompt_token_trigger) {
-                while (prompt_size > prompt_token_trigger && next_index < max_index) {
+            let last_user_index = -1
+            if (get_settings('keep_last_user_message')) {
+                for (let i = chat.length - 1; i >= 0; i--) {
+                    if (chat[i].is_user) {
+                        last_user_index = i
+                        break
+                    }
+                }
+            }
+
+            function estimate_chat_size(start_index) {
+                let total = 0
+                for (let i = 0; i < chat.length; i++) {
+                    let message = chat[i]
+                    let kept = i >= start_index || i === last_user_index
+                    if (kept) {
+                        total += count_tokens(message.mes)
+                        continue
+                    }
+                    let summary = get_memory(message)
+                    if (summary && check_message_exclusion(message)) {
+                        total += count_tokens(summary) + sep_size
+                    }
+                }
+                return total
+            }
+
+            let full_prompt_size = get_last_prompt_size()
+            let current_chat_size = estimate_chat_size(current_index)
+            let non_chat_budget = Math.max(full_prompt_size - current_chat_size, 0)
+            if (current_chat_size + non_chat_budget > prompt_token_trigger) {
+                while (current_chat_size + non_chat_budget > prompt_token_trigger && next_index < max_index) {
                     let step_end = next_index
                     if (batch_tokens > 0) {
                         let tokens = 0
@@ -3637,42 +3666,27 @@ function get_injection_threshold() {
                     } else {
                         step_end = Math.min(next_index + batch_messages, max_index)
                     }
-                    let reduction_total = 0
-                    for (let i = next_index; i < step_end; i++) {
-                        let message = chat[i]
-                        let message_tokens = count_tokens(message.mes)
-                        let summary = get_memory(message)
-                        let summary_tokens = summary && check_message_exclusion(message)
-                            ? count_tokens(summary) + sep_size
-                            : 0
-                        let reduction = Math.max(message_tokens - summary_tokens, 0)
-                        reduction_total += reduction
-                    }
-                    if (reduction_total <= 0) {
+                    let candidate_chat_size = estimate_chat_size(step_end)
+                    if (candidate_chat_size + non_chat_budget <= prompt_token_trigger) {
+                        if (batch_tokens === 0) {
+                            for (let i = next_index; i < step_end; i++) {
+                                let partial_size = estimate_chat_size(i + 1)
+                                if (partial_size + non_chat_budget <= prompt_token_trigger) {
+                                    next_index = i + 1
+                                    current_chat_size = partial_size
+                                    break
+                                }
+                                next_index = i + 1
+                                current_chat_size = partial_size
+                            }
+                        } else {
+                            current_chat_size = candidate_chat_size
+                            next_index = step_end
+                        }
                         break
                     }
-                    if (batch_tokens === 0 && prompt_size - reduction_total < prompt_token_trigger) {
-                        for (let i = next_index; i < step_end; i++) {
-                            let message = chat[i]
-                            let message_tokens = count_tokens(message.mes)
-                            let summary = get_memory(message)
-                            let summary_tokens = summary && check_message_exclusion(message)
-                                ? count_tokens(summary) + sep_size
-                                : 0
-                            let reduction = Math.max(message_tokens - summary_tokens, 0)
-                            if (reduction <= 0) {
-                                continue
-                            }
-                            prompt_size -= reduction
-                            next_index = i + 1
-                            if (prompt_size <= prompt_token_trigger) {
-                                break
-                            }
-                        }
-                    } else {
-                        prompt_size -= reduction_total
-                        next_index = step_end
-                    }
+                    current_chat_size = candidate_chat_size
+                    next_index = step_end
                 }
             }
         }
