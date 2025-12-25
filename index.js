@@ -3625,18 +3625,20 @@ function get_injection_threshold() {
             next_index = Math.min(current_index, max_index)
             let sep_size = calculate_injection_separator_size()
             let prompt_token_map = new Map()
+            let total_prompt_tokens = 0
             for (let i = 0; i < itemizedPrompts.length; i++) {
                 let itemized_prompt = itemizedPrompts[i]
+                let token_count = itemized_prompt?.tokenCount
+                if (token_count === undefined) {
+                    let raw_prompt = itemized_prompt?.rawPrompt
+                    if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
+                    token_count = count_tokens(raw_prompt ?? '')
+                }
+                total_prompt_tokens += token_count
                 if (itemized_prompt?.mesId === undefined || itemized_prompt?.mesId === null) {
                     continue
                 }
-                if (itemized_prompt.tokenCount !== undefined) {
-                    prompt_token_map.set(itemized_prompt.mesId, itemized_prompt.tokenCount)
-                    continue
-                }
-                let raw_prompt = itemized_prompt.rawPrompt
-                if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
-                prompt_token_map.set(itemized_prompt.mesId, count_tokens(raw_prompt ?? ''))
+                prompt_token_map.set(itemized_prompt.mesId, token_count)
             }
 
             function get_prompt_tokens_for_message(index) {
@@ -3672,9 +3674,8 @@ function get_injection_threshold() {
                 return total
             }
 
-            let full_prompt_size = get_last_prompt_size()
             let base_chat_size = estimate_chat_size(0)
-            let non_chat_budget = Math.max(full_prompt_size - base_chat_size, 0)
+            let non_chat_budget = Math.max(total_prompt_tokens - base_chat_size, 0)
             let current_chat_size = estimate_chat_size(current_index)
             if (current_chat_size + non_chat_budget > prompt_token_trigger) {
                 while (current_chat_size + non_chat_budget > prompt_token_trigger && next_index < max_index) {
