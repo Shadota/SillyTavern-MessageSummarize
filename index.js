@@ -3741,22 +3741,7 @@ function get_injection_threshold() {
                 if (map) {
                     return { map, source: 'raw_prompt' }
                 }
-                map = new Map()
-                for (let i = 0; i < itemizedPrompts.length; i++) {
-                    let itemized_prompt = itemizedPrompts[i]
-                    if (itemized_prompt?.mesId === undefined || itemized_prompt?.mesId === null) {
-                        continue
-                    }
-                    let token_count = itemized_prompt?.tokenCount
-                    if (token_count === undefined) {
-                        let raw_prompt = itemized_prompt?.rawPrompt
-                        if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
-                        token_count = count_tokens(raw_prompt ?? '')
-                    }
-                    let existing = map.get(itemized_prompt.mesId) ?? 0
-                    map.set(itemized_prompt.mesId, existing + token_count)
-                }
-                return { map, source: 'itemized_prompts' }
+                return { map: new Map(), source: 'fallback_text' }
             }
             let message_token_state = build_message_token_map(last_raw_prompt)
             let message_token_map = message_token_state.map
@@ -4195,7 +4180,6 @@ function collect_messages_to_auto_summarize() {
 
         // skip messages that already have a summary
         if (get_data(message, 'memory')) {
-            debug(`ID [${i}]: Already has a memory`)
             continue;
         }
 
