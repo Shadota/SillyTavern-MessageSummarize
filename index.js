@@ -520,7 +520,20 @@ function get_profile_max_tokens() {
     // get the maximum token length for the chosen profile's completion preset
     let profile_id = get_summary_connection_profile()
     let profile = get_connection_profile(profile_id)
-    let preset = getPresetManager().getCompletionPresetByName(profile.preset)
+    if (!profile) {
+        return amount_gen
+    }
+    let preset_manager = getPresetManager()
+    let preset = preset_manager.getCompletionPresetByName?.(profile.preset)
+    if (!preset) {
+        let preset_list = preset_manager?.completionPresets
+        if (!preset_list && preset_manager?.getCompletionPresets) {
+            preset_list = preset_manager.getCompletionPresets()
+        }
+        if (Array.isArray(preset_list) && preset_list.length === 1) {
+            preset = preset_list[0]
+        }
+    }
 
     // if the preset doesn't have a genamt use the current genamt.
     // it might be null if the preset has never been saved or was reset to default.
