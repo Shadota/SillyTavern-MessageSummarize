@@ -3651,8 +3651,28 @@ function get_injection_threshold() {
                     if (reduction_total <= 0) {
                         break
                     }
-                    prompt_size -= reduction_total
-                    next_index = step_end
+                    if (batch_tokens === 0 && prompt_size - reduction_total < prompt_token_trigger) {
+                        for (let i = next_index; i < step_end; i++) {
+                            let message = chat[i]
+                            let message_tokens = count_tokens(message.mes)
+                            let summary = get_memory(message)
+                            let summary_tokens = summary && check_message_exclusion(message)
+                                ? count_tokens(summary) + sep_size
+                                : 0
+                            let reduction = Math.max(message_tokens - summary_tokens, 0)
+                            if (reduction <= 0) {
+                                continue
+                            }
+                            prompt_size -= reduction
+                            next_index = i + 1
+                            if (prompt_size <= prompt_token_trigger) {
+                                break
+                            }
+                        }
+                    } else {
+                        prompt_size -= reduction_total
+                        next_index = step_end
+                    }
                 }
             }
         }
