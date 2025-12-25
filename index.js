@@ -3624,6 +3624,27 @@ function get_injection_threshold() {
             current_index = INJECTION_THRESHOLD_INDEX ?? 0
             next_index = Math.min(current_index, max_index)
             let sep_size = calculate_injection_separator_size()
+            let prompt_token_map = new Map()
+            for (let i = 0; i < itemizedPrompts.length; i++) {
+                let itemized_prompt = itemizedPrompts[i]
+                if (itemized_prompt?.mesId === undefined || itemized_prompt?.mesId === null) {
+                    continue
+                }
+                if (itemized_prompt.tokenCount !== undefined) {
+                    prompt_token_map.set(itemized_prompt.mesId, itemized_prompt.tokenCount)
+                    continue
+                }
+                let raw_prompt = itemized_prompt.rawPrompt
+                if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
+                prompt_token_map.set(itemized_prompt.mesId, count_tokens(raw_prompt ?? ''))
+            }
+
+            function get_prompt_tokens_for_message(index) {
+                if (prompt_token_map.has(index)) {
+                    return prompt_token_map.get(index)
+                }
+                return count_tokens(chat[index].mes)
+            }
             let last_user_index = -1
             if (get_settings('keep_last_user_message')) {
                 for (let i = chat.length - 1; i >= 0; i--) {
@@ -3640,7 +3661,7 @@ function get_injection_threshold() {
                     let message = chat[i]
                     let kept = i >= start_index || i === last_user_index
                     if (kept) {
-                        total += count_tokens(message.mes)
+                        total += get_prompt_tokens_for_message(i)
                         continue
                     }
                     let summary = get_memory(message)
@@ -3661,7 +3682,7 @@ function get_injection_threshold() {
                     if (batch_tokens > 0) {
                         let tokens = 0
                         while (step_end < max_index && tokens < batch_tokens) {
-                            tokens += count_tokens(chat[step_end].mes)
+                            tokens += get_prompt_tokens_for_message(step_end)
                             step_end += 1
                         }
                     } else {
