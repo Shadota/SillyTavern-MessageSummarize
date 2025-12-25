@@ -207,20 +207,58 @@ function get_last_prompt_size() {
     // return the size in tokens of the last message's prompt
     let last_index = getContext().chat.length - 1
 
-    let raw_prompt = undefined;
-    for (let i = 0; i < itemizedPrompts.length; i++) {
-        let itemized_prompt = itemizedPrompts[i]
-        if (itemized_prompt.mesId === last_index) {
-            raw_prompt = itemized_prompt.rawPrompt
-            break;
-        }
-    }
+    let raw_prompt = get_last_prompt_raw()
     if (raw_prompt === undefined) {
         debug('Could not find raw prompt for message:', last_index)
         return 0
     }
-    if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
     return count_tokens(raw_prompt)
+}
+function get_last_prompt_raw() {
+    let last_index = getContext().chat.length - 1
+    let raw_prompt = undefined
+    for (let i = itemizedPrompts.length - 1; i >= 0; i--) {
+        let itemized_prompt = itemizedPrompts[i]
+        if (itemized_prompt.mesId === last_index) {
+            raw_prompt = itemized_prompt.rawPrompt
+            break
+        }
+    }
+    if (raw_prompt === undefined) {
+        return undefined
+    }
+    if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
+    return raw_prompt
+}
+function get_prompt_chat_tokens_from_raw(raw_prompt) {
+    if (!raw_prompt) {
+        return null
+    }
+    const header_regex = /<\|eot_id\|><\|start_header_id\|>(user|assistant|system)<\|end_header_id\|>/g
+    let matches = []
+    let match
+    while ((match = header_regex.exec(raw_prompt)) !== null) {
+        matches.push({
+            index: match.index,
+            length: match[0].length,
+            role: match[1],
+        })
+    }
+    if (matches.length === 0) {
+        return null
+    }
+    let total = 0
+    for (let i = 0; i < matches.length; i++) {
+        let current = matches[i]
+        let next = matches[i + 1]
+        if (current.role !== 'user' && current.role !== 'assistant') {
+            continue
+        }
+        let end_index = next ? next.index : raw_prompt.length
+        let segment = raw_prompt.slice(current.index, end_index)
+        total += count_tokens(segment)
+    }
+    return total
 }
 function get_long_token_limit() {
     // Get the long-term memory token limit, given the current context size and settings
@@ -3644,19 +3682,25 @@ function get_injection_threshold() {
                 user: count_tokens(PROMPT_HEADER_USER),
                 assistant: count_tokens(PROMPT_HEADER_ASSISTANT),
             }
-            let prompt_chat_tokens = 0
-            for (let i = 0; i < itemizedPrompts.length; i++) {
-                let itemized_prompt = itemizedPrompts[i]
-                if (itemized_prompt?.mesId === undefined || itemized_prompt?.mesId === null) {
-                    continue
+            let last_raw_prompt = get_last_prompt_raw()
+            let prompt_chat_tokens_source = 'raw_prompt'
+            let prompt_chat_tokens = get_prompt_chat_tokens_from_raw(last_raw_prompt)
+            if (prompt_chat_tokens === null) {
+                prompt_chat_tokens_source = 'itemized_prompts'
+                prompt_chat_tokens = 0
+                for (let i = 0; i < itemizedPrompts.length; i++) {
+                    let itemized_prompt = itemizedPrompts[i]
+                    if (itemized_prompt?.mesId === undefined || itemized_prompt?.mesId === null) {
+                        continue
+                    }
+                    let token_count = itemized_prompt?.tokenCount
+                    if (token_count === undefined) {
+                        let raw_prompt = itemized_prompt?.rawPrompt
+                        if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
+                        token_count = count_tokens(raw_prompt ?? '')
+                    }
+                    prompt_chat_tokens += token_count
                 }
-                let token_count = itemized_prompt?.tokenCount
-                if (token_count === undefined) {
-                    let raw_prompt = itemized_prompt?.rawPrompt
-                    if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
-                    token_count = count_tokens(raw_prompt ?? '')
-                }
-                prompt_chat_tokens += token_count
             }
 
             function estimate_message_prompt_tokens(message) {
@@ -3690,13 +3734,14 @@ function get_injection_threshold() {
                 return total
             }
 
-            let total_prompt_tokens = get_last_prompt_size()
+            let total_prompt_tokens = last_raw_prompt ? count_tokens(last_raw_prompt) : get_last_prompt_size()
             let non_chat_budget = Math.max(total_prompt_tokens - prompt_chat_tokens, 0)
             let current_chat_size = estimate_chat_size(current_index)
             if (get_settings('debug_mode')) {
                 LAST_TRIM_DIAGNOSTICS = {
                     total_prompt_tokens,
                     prompt_chat_tokens,
+                    prompt_chat_tokens_source,
                     non_chat_budget,
                     current_chat_size,
                     current_index,
