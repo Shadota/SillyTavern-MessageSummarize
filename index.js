@@ -3624,6 +3624,12 @@ function get_injection_threshold() {
             current_index = INJECTION_THRESHOLD_INDEX ?? 0
             next_index = Math.min(current_index, max_index)
             let sep_size = calculate_injection_separator_size()
+            const PROMPT_HEADER_USER = '<|eot_id|><|start_header_id|>user<|end_header_id|>'
+            const PROMPT_HEADER_ASSISTANT = '<|eot_id|><|start_header_id|>assistant<|end_header_id|>'
+            const prompt_header_tokens = {
+                user: count_tokens(PROMPT_HEADER_USER),
+                assistant: count_tokens(PROMPT_HEADER_ASSISTANT),
+            }
             let prompt_token_map = new Map()
             let total_prompt_tokens = 0
             for (let i = 0; i < itemizedPrompts.length; i++) {
@@ -3647,6 +3653,11 @@ function get_injection_threshold() {
                 }
                 return count_tokens(chat[index].mes)
             }
+
+            function estimate_message_prompt_tokens(message) {
+                let role_header_tokens = message.is_user ? prompt_header_tokens.user : prompt_header_tokens.assistant
+                return count_tokens(message.mes) + role_header_tokens
+            }
             let last_user_index = -1
             if (get_settings('keep_last_user_message')) {
                 for (let i = chat.length - 1; i >= 0; i--) {
@@ -3663,7 +3674,7 @@ function get_injection_threshold() {
                     let message = chat[i]
                     let kept = i >= start_index || i === last_user_index
                     if (kept) {
-                        total += get_prompt_tokens_for_message(i)
+                        total += estimate_message_prompt_tokens(message)
                         continue
                     }
                     let summary = get_memory(message)
@@ -3683,7 +3694,7 @@ function get_injection_threshold() {
                     if (batch_tokens > 0) {
                         let tokens = 0
                         while (step_end < max_index && tokens < batch_tokens) {
-                            tokens += get_prompt_tokens_for_message(step_end)
+                            tokens += estimate_message_prompt_tokens(chat[step_end])
                             step_end += 1
                         }
                     } else {
