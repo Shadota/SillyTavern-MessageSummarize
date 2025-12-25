@@ -83,14 +83,16 @@ The extension will go back in your chat and look for any messages that need to b
 #### General Injection Settings
 - This controls how summaries are injected into your context (applies to both `short-term` and `long-term`)
 - *Summary Separator* is what will be prefixed to each summary when injected into context. The default value of `\n*` means that each summary will be in a bullet-point list.
-- The `Injection Threshold` setting controls how many messages back in the chat to go before summaries even start to be injected into your context.
+- The `Injection Threshold` setting controls how far back from the end of the chat summaries start to be injected into your context.
 - You can then optionally remove the original messages from your context after that same threshold to free up space by selecting `Remove Messages`.
 If you want to guarantee that your most recent user message will not be removed regardless of the threshold, select `Keep Last User Msg`.
-- By default, each new chat message pushes an older message past the injection threshold, potentially changing the injected content and invalidating your prompt cache.
-If this invalidates your model's cache too frequently, you can opt to freeze the injection threshold at its current location in your chat, only updating when certain conditions are met, specified by the `Update Triggers` settings.
-This means that no new summaries will be injected until one of the conditions is triggered, at which point the injection threshold will jump back up to the desired position.
-You can set triggers to update the injection threshold after a number of new messages, a number of new summaries, or if the previous prompt size reaches some percent of your max context.
-If multiple triggers are specified, any of them will trigger an update. You can also manually trigger an update using `/qm-update-injection-threshold`.
+- With `Remove Messages` enabled and a token/percent threshold, the extension uses the total prompt size and trims in fixed batches until the full prompt is back under the limit.
+
+**Example: keep the newest 20 full messages while trimming back under 48k tokens**
+- Set `Injection Threshold` to `48000` and select `tk` (or `%` for a percent of max context).
+- Enable `Remove Messages`.
+- Set `Batch Trimming -> Batch Messages` to `20` (leave batch tokens at `0`, or set batch tokens to use a token-sized batch instead).
+- When the total prompt exceeds 48k tokens, the cutoff advances in 20-message batches until the prompt is back under 48k, while keeping at least the newest 20 full messages.
 
 #### Short-Term Memory Injection
 - These settings affect how `short-term` summaries are injected.
