@@ -3718,40 +3718,37 @@ function get_injection_threshold() {
                 user: count_tokens(PROMPT_HEADER_USER),
                 assistant: count_tokens(PROMPT_HEADER_ASSISTANT),
             }
-            let last_raw_prompt = get_last_prompt_raw()
-            let prompt_chat_tokens_source = 'raw_prompt'
-            let prompt_chat_tokens = get_prompt_chat_tokens_from_raw(last_raw_prompt)
-            if (prompt_chat_tokens === null) {
-                prompt_chat_tokens_source = 'itemized_prompts'
-                prompt_chat_tokens = 0
-                for (let i = 0; i < itemizedPrompts.length; i++) {
-                    let itemized_prompt = itemizedPrompts[i]
-                    if (itemized_prompt?.mesId === undefined || itemized_prompt?.mesId === null) {
-                        continue
-                    }
-                    let token_count = itemized_prompt?.tokenCount
-                    if (token_count === undefined) {
-                        let raw_prompt = itemized_prompt?.rawPrompt
-                        if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
-                        token_count = count_tokens(raw_prompt ?? '')
-                    }
-                    prompt_chat_tokens += token_count
+            let prompt_token_map = new Map()
+            let total_prompt_tokens = 0
+            for (let i = 0; i < itemizedPrompts.length; i++) {
+                let itemized_prompt = itemizedPrompts[i]
+                let token_count = itemized_prompt?.tokenCount
+                if (token_count === undefined) {
+                    let raw_prompt = itemized_prompt?.rawPrompt
+                    if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
+                    token_count = count_tokens(raw_prompt ?? '')
                 }
+                total_prompt_tokens += token_count
+                if (itemized_prompt?.mesId === undefined || itemized_prompt?.mesId === null) {
+                    continue
+                }
+                prompt_token_map.set(itemized_prompt.mesId, token_count)
+            }
+            let prompt_chat_tokens = 0
+            for (let value of prompt_token_map.values()) {
+                prompt_chat_tokens += value
             }
 
-            function build_message_token_map(raw_prompt) {
-                let map = get_prompt_message_tokens_from_raw(raw_prompt, chat)
-                if (map) {
-                    return { map, source: 'raw_prompt' }
+            function get_prompt_tokens_for_message(index) {
+                if (prompt_token_map.has(index)) {
+                    return prompt_token_map.get(index)
                 }
-                return { map: new Map(), source: 'fallback_text' }
+                return count_tokens(chat[index].mes)
             }
-            let message_token_state = build_message_token_map(last_raw_prompt)
-            let message_token_map = message_token_state.map
-            function estimate_message_prompt_tokens(message, index) {
-                let mapped = message_token_map.get(index)
-                if (mapped !== undefined) {
-                    return mapped
+
+            function estimate_message_prompt_tokens(message) {
+                if (prompt_token_map.has(message.id)) {
+                    return prompt_token_map.get(message.id)
                 }
                 let role_header_tokens = message.is_user ? prompt_header_tokens.user : prompt_header_tokens.assistant
                 return count_tokens(message.mes) + role_header_tokens
@@ -3772,7 +3769,7 @@ function get_injection_threshold() {
                     let message = chat[i]
                     let kept = i >= start_index || i === last_user_index
                     if (kept) {
-                        total += estimate_message_prompt_tokens(message, i)
+                        total += estimate_message_prompt_tokens(message)
                         continue
                     }
                     let summary = get_memory(message)
@@ -3783,32 +3780,15 @@ function get_injection_threshold() {
                 return total
             }
 
-            let total_prompt_tokens = last_raw_prompt ? count_tokens(last_raw_prompt) : get_last_prompt_size()
             let non_chat_budget = Math.max(total_prompt_tokens - prompt_chat_tokens, 0)
             let current_chat_size = estimate_chat_size(current_index)
-            if (get_settings('debug_mode')) {
-                LAST_TRIM_DIAGNOSTICS = {
-                    total_prompt_tokens,
-                    prompt_chat_tokens,
-                    prompt_chat_tokens_source,
-                    message_token_source: message_token_state.map.size > 0 ? message_token_state.source : 'fallback_text',
-                    non_chat_budget,
-                    current_chat_size,
-                    current_index,
-                    max_index,
-                    batch_messages,
-                    batch_tokens,
-                    prompt_token_trigger,
-                }
-                debug("Trim diagnostics:", LAST_TRIM_DIAGNOSTICS)
-            }
             if (current_chat_size + non_chat_budget > prompt_token_trigger) {
                 while (current_chat_size + non_chat_budget > prompt_token_trigger && next_index < max_index) {
                     let step_end = next_index
                     if (batch_tokens > 0) {
                         let tokens = 0
                         while (step_end < max_index && tokens < batch_tokens) {
-                            tokens += estimate_message_prompt_tokens(chat[step_end], step_end)
+                            tokens += estimate_message_prompt_tokens(chat[step_end])
                             step_end += 1
                         }
                     } else {
