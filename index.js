@@ -3558,6 +3558,7 @@ function get_character_key(message) {
 var INJECTION_THRESHOLD_INDEX = null;  // Index of the injection threshold, i.e. the first message index to inject
 var LAST_INJECTION_THRESHOLD = null;  // the last value of the injection threshold
 var LAST_INJECTION_THRESHOLD_TYPE = null;
+var LAST_TRIM_DIAGNOSTICS = null;
 function get_injection_threshold() {
     // Update and return the injection threshold index
     let chat = getContext().chat
@@ -3679,6 +3680,20 @@ function get_injection_threshold() {
             let total_prompt_tokens = get_last_prompt_size()
             let non_chat_budget = Math.max(total_prompt_tokens - prompt_chat_tokens, 0)
             let current_chat_size = estimate_chat_size(current_index)
+            if (get_settings('debug_mode')) {
+                LAST_TRIM_DIAGNOSTICS = {
+                    total_prompt_tokens,
+                    prompt_chat_tokens,
+                    non_chat_budget,
+                    current_chat_size,
+                    current_index,
+                    max_index,
+                    batch_messages,
+                    batch_tokens,
+                    prompt_token_trigger,
+                }
+                debug("Trim diagnostics:", LAST_TRIM_DIAGNOSTICS)
+            }
             if (current_chat_size + non_chat_budget > prompt_token_trigger) {
                 while (current_chat_size + non_chat_budget > prompt_token_trigger && next_index < max_index) {
                     let step_end = next_index
