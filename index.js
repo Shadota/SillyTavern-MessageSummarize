@@ -3652,8 +3652,9 @@ function get_injection_threshold() {
             }
 
             let full_prompt_size = get_last_prompt_size()
+            let base_chat_size = estimate_chat_size(0)
+            let non_chat_budget = Math.max(full_prompt_size - base_chat_size, 0)
             let current_chat_size = estimate_chat_size(current_index)
-            let non_chat_budget = Math.max(full_prompt_size - current_chat_size, 0)
             if (current_chat_size + non_chat_budget > prompt_token_trigger) {
                 while (current_chat_size + non_chat_budget > prompt_token_trigger && next_index < max_index) {
                     let step_end = next_index
