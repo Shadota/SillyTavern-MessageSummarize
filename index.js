@@ -205,22 +205,96 @@ function get_context_size() {
 }
 function get_last_prompt_size() {
     // return the size in tokens of the last message's prompt
+    let raw_prompt = get_last_prompt_raw()
+    if (raw_prompt === undefined) {
+        debug('Could not find raw prompt for last message prompt')
+        return 0
+    }
+    return count_tokens(raw_prompt)
+}
+function normalize_raw_prompt(raw_prompt) {
+    if (Array.isArray(raw_prompt)) {
+        return raw_prompt.map(x => x.content).join('\n')
+    }
+    return raw_prompt
+}
+function get_last_prompt_raw() {
     let last_index = getContext().chat.length - 1
-
-    let raw_prompt = undefined;
-    for (let i = 0; i < itemizedPrompts.length; i++) {
+    let raw_prompt = undefined
+    for (let i = itemizedPrompts.length - 1; i >= 0; i--) {
         let itemized_prompt = itemizedPrompts[i]
         if (itemized_prompt.mesId === last_index) {
             raw_prompt = itemized_prompt.rawPrompt
-            break;
+            break
         }
     }
     if (raw_prompt === undefined) {
-        debug('Could not find raw prompt for message:', last_index)
-        return 0
+        return undefined
     }
-    if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
-    return count_tokens(raw_prompt)
+    return normalize_raw_prompt(raw_prompt)
+}
+function get_prompt_chat_segments_from_raw(raw_prompt) {
+    if (!raw_prompt) {
+        return null
+    }
+    const header_regex = /<\|eot_id\|><\|start_header_id\|>(user|assistant|system)<\|end_header_id\|>/g
+    let matches = []
+    let match
+    while ((match = header_regex.exec(raw_prompt)) !== null) {
+        matches.push({
+            index: match.index,
+            role: match[1],
+        })
+    }
+    if (matches.length === 0) {
+        return null
+    }
+    let segments = []
+    for (let i = 0; i < matches.length; i++) {
+        let current = matches[i]
+        let next = matches[i + 1]
+        if (current.role !== 'user' && current.role !== 'assistant') {
+            continue
+        }
+        let end_index = next ? next.index : raw_prompt.length
+        let segment = raw_prompt.slice(current.index, end_index)
+        segments.push({
+            role: current.role,
+            tokenCount: count_tokens(segment),
+        })
+    }
+    return segments
+}
+function get_prompt_chat_tokens_from_raw(raw_prompt) {
+    let segments = get_prompt_chat_segments_from_raw(raw_prompt)
+    if (!segments) {
+        return null
+    }
+    return segments.reduce((total, segment) => total + segment.tokenCount, 0)
+}
+function get_prompt_message_tokens_from_raw(raw_prompt, chat) {
+    let segments = get_prompt_chat_segments_from_raw(raw_prompt)
+    if (!segments) {
+        return null
+    }
+    let map = new Map()
+    let segment_index = 0
+    for (let i = 0; i < chat.length && segment_index < segments.length; i++) {
+        let message = chat[i]
+        if (message.is_system) {
+            continue
+        }
+        let expected_role = message.is_user ? 'user' : 'assistant'
+        while (segment_index < segments.length && segments[segment_index].role !== expected_role) {
+            segment_index += 1
+        }
+        if (segment_index >= segments.length) {
+            break
+        }
+        map.set(i, segments[segment_index].tokenCount)
+        segment_index += 1
+    }
+    return map
 }
 function get_long_token_limit() {
     // Get the long-term memory token limit, given the current context size and settings
@@ -520,7 +594,20 @@ function get_profile_max_tokens() {
     // get the maximum token length for the chosen profile's completion preset
     let profile_id = get_summary_connection_profile()
     let profile = get_connection_profile(profile_id)
-    let preset = getPresetManager().getCompletionPresetByName(profile.preset)
+    if (!profile) {
+        return amount_gen
+    }
+    let preset_manager = getPresetManager()
+    let preset = preset_manager.getCompletionPresetByName?.(profile.preset)
+    if (!preset) {
+        let preset_list = preset_manager?.completionPresets
+        if (!preset_list && preset_manager?.getCompletionPresets) {
+            preset_list = preset_manager.getCompletionPresets()
+        }
+        if (Array.isArray(preset_list) && preset_list.length === 1) {
+            preset = preset_list[0]
+        }
+    }
 
     // if the preset doesn't have a genamt use the current genamt.
     // it might be null if the preset has never been saved or was reset to default.
@@ -3558,6 +3645,7 @@ function get_character_key(message) {
 var INJECTION_THRESHOLD_INDEX = null;  // Index of the injection threshold, i.e. the first message index to inject
 var LAST_INJECTION_THRESHOLD = null;  // the last value of the injection threshold
 var LAST_INJECTION_THRESHOLD_TYPE = null;
+var LAST_TRIM_DIAGNOSTICS = null;
 function get_injection_threshold() {
     // Update and return the injection threshold index
     let chat = getContext().chat
@@ -3630,37 +3718,40 @@ function get_injection_threshold() {
                 user: count_tokens(PROMPT_HEADER_USER),
                 assistant: count_tokens(PROMPT_HEADER_ASSISTANT),
             }
-            let prompt_token_map = new Map()
-            let total_prompt_tokens = 0
-            for (let i = 0; i < itemizedPrompts.length; i++) {
-                let itemized_prompt = itemizedPrompts[i]
-                let token_count = itemized_prompt?.tokenCount
-                if (token_count === undefined) {
-                    let raw_prompt = itemized_prompt?.rawPrompt
-                    if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
-                    token_count = count_tokens(raw_prompt ?? '')
+            let last_raw_prompt = get_last_prompt_raw()
+            let prompt_chat_tokens_source = 'raw_prompt'
+            let prompt_chat_tokens = get_prompt_chat_tokens_from_raw(last_raw_prompt)
+            if (prompt_chat_tokens === null) {
+                prompt_chat_tokens_source = 'itemized_prompts'
+                prompt_chat_tokens = 0
+                for (let i = 0; i < itemizedPrompts.length; i++) {
+                    let itemized_prompt = itemizedPrompts[i]
+                    if (itemized_prompt?.mesId === undefined || itemized_prompt?.mesId === null) {
+                        continue
+                    }
+                    let token_count = itemized_prompt?.tokenCount
+                    if (token_count === undefined) {
+                        let raw_prompt = itemized_prompt?.rawPrompt
+                        if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
+                        token_count = count_tokens(raw_prompt ?? '')
+                    }
+                    prompt_chat_tokens += token_count
                 }
-                total_prompt_tokens += token_count
-                if (itemized_prompt?.mesId === undefined || itemized_prompt?.mesId === null) {
-                    continue
-                }
-                prompt_token_map.set(itemized_prompt.mesId, token_count)
-            }
-            let prompt_chat_tokens = 0
-            for (let value of prompt_token_map.values()) {
-                prompt_chat_tokens += value
-            }
-
-            function get_prompt_tokens_for_message(index) {
-                if (prompt_token_map.has(index)) {
-                    return prompt_token_map.get(index)
-                }
-                return count_tokens(chat[index].mes)
             }
 
-            function estimate_message_prompt_tokens(message) {
-                if (prompt_token_map.has(message.id)) {
-                    return prompt_token_map.get(message.id)
+            function build_message_token_map(raw_prompt) {
+                let map = get_prompt_message_tokens_from_raw(raw_prompt, chat)
+                if (map) {
+                    return { map, source: 'raw_prompt' }
+                }
+                return { map: new Map(), source: 'fallback_text' }
+            }
+            let message_token_state = build_message_token_map(last_raw_prompt)
+            let message_token_map = message_token_state.map
+            function estimate_message_prompt_tokens(message, index) {
+                let mapped = message_token_map.get(index)
+                if (mapped !== undefined) {
+                    return mapped
                 }
                 let role_header_tokens = message.is_user ? prompt_header_tokens.user : prompt_header_tokens.assistant
                 return count_tokens(message.mes) + role_header_tokens
@@ -3681,7 +3772,7 @@ function get_injection_threshold() {
                     let message = chat[i]
                     let kept = i >= start_index || i === last_user_index
                     if (kept) {
-                        total += estimate_message_prompt_tokens(message)
+                        total += estimate_message_prompt_tokens(message, i)
                         continue
                     }
                     let summary = get_memory(message)
@@ -3692,15 +3783,32 @@ function get_injection_threshold() {
                 return total
             }
 
+            let total_prompt_tokens = last_raw_prompt ? count_tokens(last_raw_prompt) : get_last_prompt_size()
             let non_chat_budget = Math.max(total_prompt_tokens - prompt_chat_tokens, 0)
             let current_chat_size = estimate_chat_size(current_index)
+            if (get_settings('debug_mode')) {
+                LAST_TRIM_DIAGNOSTICS = {
+                    total_prompt_tokens,
+                    prompt_chat_tokens,
+                    prompt_chat_tokens_source,
+                    message_token_source: message_token_state.map.size > 0 ? message_token_state.source : 'fallback_text',
+                    non_chat_budget,
+                    current_chat_size,
+                    current_index,
+                    max_index,
+                    batch_messages,
+                    batch_tokens,
+                    prompt_token_trigger,
+                }
+                debug("Trim diagnostics:", LAST_TRIM_DIAGNOSTICS)
+            }
             if (current_chat_size + non_chat_budget > prompt_token_trigger) {
                 while (current_chat_size + non_chat_budget > prompt_token_trigger && next_index < max_index) {
                     let step_end = next_index
                     if (batch_tokens > 0) {
                         let tokens = 0
                         while (step_end < max_index && tokens < batch_tokens) {
-                            tokens += estimate_message_prompt_tokens(chat[step_end])
+                            tokens += estimate_message_prompt_tokens(chat[step_end], step_end)
                             step_end += 1
                         }
                     } else {
@@ -4075,7 +4183,6 @@ function collect_messages_to_auto_summarize() {
 
         // skip messages that already have a summary
         if (get_data(message, 'memory')) {
-            debug(`ID [${i}]: Already has a memory`)
             continue;
         }
 

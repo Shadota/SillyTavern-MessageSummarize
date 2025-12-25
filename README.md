@@ -86,13 +86,15 @@ The extension will go back in your chat and look for any messages that need to b
 - The `Injection Threshold` setting controls how far back from the end of the chat summaries start to be injected into your context.
 - You can then optionally remove the original messages from your context after that same threshold to free up space by selecting `Remove Messages`.
 If you want to guarantee that your most recent user message will not be removed regardless of the threshold, select `Keep Last User Msg`.
-- With `Remove Messages` enabled and a token/percent threshold, the extension uses the total prompt size and trims in fixed batches until the full prompt is back under the limit.
+- With `Remove Messages` enabled and a token/percent threshold, the extension uses the total prompt size from the most recent generation and trims in fixed batches until the full prompt is back under the limit.
 
 **Example: keep the newest 20 full messages while trimming back under 48k tokens**
 - Set `Injection Threshold` to `48000` and select `tk` (or `%` for a percent of max context).
 - Enable `Remove Messages`.
 - Set `Batch Trimming -> Batch Messages` to `20` (leave batch tokens at `0`, or set batch tokens to use a token-sized batch instead).
 - When the total prompt exceeds 48k tokens, the cutoff advances in 20-message batches until the prompt is back under 48k, while keeping at least the newest 20 full messages.
+
+**Tip:** If your backend token counter differs from the UI, enable `Debug Mode` and compare the `total_prompt_tokens` value to the backend’s reported prompt size for the most recent generation. The extension bases trimming on that last prompt size.
 
 #### Short-Term Memory Injection
 - These settings affect how `short-term` summaries are injected.
