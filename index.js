@@ -230,7 +230,7 @@ function get_last_prompt_raw() {
     if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
     return raw_prompt
 }
-function get_prompt_chat_tokens_from_raw(raw_prompt) {
+function get_prompt_chat_segments_from_raw(raw_prompt) {
     if (!raw_prompt) {
         return null
     }
@@ -240,14 +240,13 @@ function get_prompt_chat_tokens_from_raw(raw_prompt) {
     while ((match = header_regex.exec(raw_prompt)) !== null) {
         matches.push({
             index: match.index,
-            length: match[0].length,
             role: match[1],
         })
     }
     if (matches.length === 0) {
         return null
     }
-    let total = 0
+    let segments = []
     for (let i = 0; i < matches.length; i++) {
         let current = matches[i]
         let next = matches[i + 1]
@@ -256,9 +255,43 @@ function get_prompt_chat_tokens_from_raw(raw_prompt) {
         }
         let end_index = next ? next.index : raw_prompt.length
         let segment = raw_prompt.slice(current.index, end_index)
-        total += count_tokens(segment)
+        segments.push({
+            role: current.role,
+            tokenCount: count_tokens(segment),
+        })
     }
-    return total
+    return segments
+}
+function get_prompt_chat_tokens_from_raw(raw_prompt) {
+    let segments = get_prompt_chat_segments_from_raw(raw_prompt)
+    if (!segments) {
+        return null
+    }
+    return segments.reduce((total, segment) => total + segment.tokenCount, 0)
+}
+function get_prompt_message_tokens_from_raw(raw_prompt, chat) {
+    let segments = get_prompt_chat_segments_from_raw(raw_prompt)
+    if (!segments) {
+        return null
+    }
+    let map = new Map()
+    let segment_index = 0
+    for (let i = 0; i < chat.length && segment_index < segments.length; i++) {
+        let message = chat[i]
+        if (message.is_system) {
+            continue
+        }
+        let expected_role = message.is_user ? 'user' : 'assistant'
+        while (segment_index < segments.length && segments[segment_index].role !== expected_role) {
+            segment_index += 1
+        }
+        if (segment_index >= segments.length) {
+            break
+        }
+        map.set(i, segments[segment_index].tokenCount)
+        segment_index += 1
+    }
+    return map
 }
 function get_long_token_limit() {
     // Get the long-term memory token limit, given the current context size and settings
@@ -3703,8 +3736,12 @@ function get_injection_threshold() {
                 }
             }
 
-            function build_message_token_map() {
-                let map = new Map()
+            function build_message_token_map(raw_prompt) {
+                let map = get_prompt_message_tokens_from_raw(raw_prompt, chat)
+                if (map) {
+                    return { map, source: 'raw_prompt' }
+                }
+                map = new Map()
                 for (let i = 0; i < itemizedPrompts.length; i++) {
                     let itemized_prompt = itemizedPrompts[i]
                     if (itemized_prompt?.mesId === undefined || itemized_prompt?.mesId === null) {
@@ -3719,9 +3756,10 @@ function get_injection_threshold() {
                     let existing = map.get(itemized_prompt.mesId) ?? 0
                     map.set(itemized_prompt.mesId, existing + token_count)
                 }
-                return map
+                return { map, source: 'itemized_prompts' }
             }
-            let message_token_map = build_message_token_map()
+            let message_token_state = build_message_token_map(last_raw_prompt)
+            let message_token_map = message_token_state.map
             function estimate_message_prompt_tokens(message, index) {
                 let mapped = message_token_map.get(index)
                 if (mapped !== undefined) {
@@ -3765,7 +3803,7 @@ function get_injection_threshold() {
                     total_prompt_tokens,
                     prompt_chat_tokens,
                     prompt_chat_tokens_source,
-                    message_token_source: message_token_map.size > 0 ? 'itemized_prompts' : 'fallback_text',
+                    message_token_source: message_token_state.map.size > 0 ? message_token_state.source : 'fallback_text',
                     non_chat_budget,
                     current_chat_size,
                     current_index,
