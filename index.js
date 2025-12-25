@@ -229,26 +229,9 @@ function get_last_prompt_raw() {
         }
     }
     if (raw_prompt === undefined) {
-        return get_largest_prompt_raw()
+        return undefined
     }
     return normalize_raw_prompt(raw_prompt)
-}
-function get_largest_prompt_raw() {
-    let best_prompt = undefined
-    let best_tokens = -1
-    for (let i = 0; i < itemizedPrompts.length; i++) {
-        let itemized_prompt = itemizedPrompts[i]
-        if (!itemized_prompt?.rawPrompt) {
-            continue
-        }
-        let normalized = normalize_raw_prompt(itemized_prompt.rawPrompt)
-        let tokens = count_tokens(normalized)
-        if (tokens > best_tokens) {
-            best_tokens = tokens
-            best_prompt = normalized
-        }
-    }
-    return best_prompt
 }
 function get_prompt_chat_segments_from_raw(raw_prompt) {
     if (!raw_prompt) {
