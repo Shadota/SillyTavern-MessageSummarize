@@ -134,9 +134,9 @@ const default_settings = {
     summary_injection_threshold_type: "messages",  // messages, tokens, percent
     exclude_messages_after_threshold: true,    // remove messages from context after the injection threshold
     keep_last_user_message: true,  // keep the most recent user message in context
-    injection_threshold_update_trigger_messages: 0,  // update threshold when this many new messages are sent
-    injection_threshold_update_trigger_summaries: 0,  // update threshold when this many new summaries are ready
-    injection_threshold_update_trigger_context: 0,  // update threshold when the last prompt reched this percent of max context
+    injection_threshold_update_trigger_messages: 0,  // trim in batches of this many messages
+    injection_threshold_update_trigger_summaries: 0,  // trim in batches of this many tokens
+    injection_threshold_update_trigger_context: 0,  // deprecated (unused)
 
     long_template: default_long_template,
     long_term_context_limit: 10,  // context size to use as long-term memory limit
@@ -3577,10 +3577,17 @@ function get_injection_threshold() {
         debug("Calculated injection threshold: ", threshold)
     }
 
-    let messages_trigger = get_settings('injection_threshold_update_trigger_messages')  // update after this many new messages
-    let summaries_trigger = get_settings('injection_threshold_update_trigger_summaries')  // update after this many new summaries
-    let context_trigger = get_settings('injection_threshold_update_trigger_context')  // update after previous prompt reaches this percent of max context
+    let batch_messages = get_settings('injection_threshold_update_trigger_messages')  // trim in batches of this many messages
+    let batch_tokens = get_settings('injection_threshold_update_trigger_summaries')  // trim in batches of this many tokens
+    let prompt_token_trigger = threshold_type !== 'messages' ? threshold_value : 0
     let base_index = (chat.length-1) - threshold  // What the index would be if we updated it right now
+    let threshold_reached = base_index >= 0
+
+    // Always start anchored to the end of the chat before the threshold is reachable
+    if (!threshold_reached) {
+        INJECTION_THRESHOLD_INDEX = chat.length
+        return INJECTION_THRESHOLD_INDEX
+    }
 
     // Check whether the threshold setting itself has changed
     let threshold_changed = false
@@ -3590,49 +3597,148 @@ function get_injection_threshold() {
         threshold_changed = true
     }
 
-    // set to the index of the desired threshold if:
-    // the current index is null
-    // or the threshold changed
-    // or the current threshold is not a valid index (larger than the chat)
-    // or all the trigger criteria are disabled
-    // or we have triggered any of the update criteria
-    let criteria_met = INJECTION_THRESHOLD_INDEX === null || threshold_changed || INJECTION_THRESHOLD_INDEX >= chat.length
-    if (!criteria_met && messages_trigger <= 0 && summaries_trigger <= 0 && context_trigger <= 0) {
-        criteria_met = true  // If all triggers are disabled (0), then we should always update
-    }
+    let exclude_messages = get_settings('exclude_messages_after_threshold')
+    if (exclude_messages && (batch_messages > 0 || batch_tokens > 0)) {
+        let min_keep_messages = Math.max(batch_messages, 1)
+        let current_index = INJECTION_THRESHOLD_INDEX ?? base_index
+        let max_index = Math.max(chat.length - min_keep_messages, 0)
+        let next_index = Math.min(current_index, max_index)
 
-    // Check whether we have enough messages to update
-    if (!criteria_met && messages_trigger > 0) {
-        criteria_met = (base_index - INJECTION_THRESHOLD_INDEX) >= message_trigger
-        if (criteria_met) debug(`Injection update triggered: New messages > ${message_trigger}`)
-    }
+        if (threshold_type === 'messages') {
+            let keep_limit = Math.max(threshold_value, min_keep_messages)
+            max_index = Math.max(chat.length - keep_limit, 0)
+            while ((chat.length - next_index) > keep_limit && next_index < max_index) {
+                if (batch_tokens > 0) {
+                    let tokens = 0
+                    let i = next_index
+                    while (i < max_index && tokens < batch_tokens) {
+                        tokens += count_tokens(chat[i].mes)
+                        i += 1
+                    }
+                    next_index = i
+                } else {
+                    next_index = Math.min(next_index + batch_messages, max_index)
+                }
+            }
+        } else if (prompt_token_trigger > 0) {
+            current_index = INJECTION_THRESHOLD_INDEX ?? 0
+            next_index = Math.min(current_index, max_index)
+            let sep_size = calculate_injection_separator_size()
+            const PROMPT_HEADER_USER = '<|eot_id|><|start_header_id|>user<|end_header_id|>'
+            const PROMPT_HEADER_ASSISTANT = '<|eot_id|><|start_header_id|>assistant<|end_header_id|>'
+            const prompt_header_tokens = {
+                user: count_tokens(PROMPT_HEADER_USER),
+                assistant: count_tokens(PROMPT_HEADER_ASSISTANT),
+            }
+            let prompt_token_map = new Map()
+            let total_prompt_tokens = 0
+            for (let i = 0; i < itemizedPrompts.length; i++) {
+                let itemized_prompt = itemizedPrompts[i]
+                let token_count = itemized_prompt?.tokenCount
+                if (token_count === undefined) {
+                    let raw_prompt = itemized_prompt?.rawPrompt
+                    if (Array.isArray(raw_prompt)) raw_prompt = raw_prompt.map(x => x.content).join('\n')
+                    token_count = count_tokens(raw_prompt ?? '')
+                }
+                total_prompt_tokens += token_count
+                if (itemized_prompt?.mesId === undefined || itemized_prompt?.mesId === null) {
+                    continue
+                }
+                prompt_token_map.set(itemized_prompt.mesId, token_count)
+            }
+            let prompt_chat_tokens = 0
+            for (let value of prompt_token_map.values()) {
+                prompt_chat_tokens += value
+            }
 
-    // Check whether we have enough summaries ready to update
-    if (!criteria_met && summaries_trigger > 0 && (base_index - INJECTION_THRESHOLD_INDEX) >= summaries_trigger) {
-        // check all messages after the current threshold for summaries
-        let num_summaries = 0
-        for (let i = INJECTION_THRESHOLD_INDEX; i <= base_index; i++) {
-            let message = chat[i]
-            if (!get_memory(message) || !check_message_exclusion(message)) continue;
-            num_summaries += 1  // has a potentially included summary
-            criteria_met = num_summaries >= summaries_trigger
-            if (criteria_met) {
-                debug(`Injection update triggered: New summaries > ${summaries_trigger}`)
-                break;
+            function get_prompt_tokens_for_message(index) {
+                if (prompt_token_map.has(index)) {
+                    return prompt_token_map.get(index)
+                }
+                return count_tokens(chat[index].mes)
+            }
+
+            function estimate_message_prompt_tokens(message) {
+                if (prompt_token_map.has(message.id)) {
+                    return prompt_token_map.get(message.id)
+                }
+                let role_header_tokens = message.is_user ? prompt_header_tokens.user : prompt_header_tokens.assistant
+                return count_tokens(message.mes) + role_header_tokens
+            }
+            let last_user_index = -1
+            if (get_settings('keep_last_user_message')) {
+                for (let i = chat.length - 1; i >= 0; i--) {
+                    if (chat[i].is_user) {
+                        last_user_index = i
+                        break
+                    }
+                }
+            }
+
+            function estimate_chat_size(start_index) {
+                let total = 0
+                for (let i = 0; i < chat.length; i++) {
+                    let message = chat[i]
+                    let kept = i >= start_index || i === last_user_index
+                    if (kept) {
+                        total += estimate_message_prompt_tokens(message)
+                        continue
+                    }
+                    let summary = get_memory(message)
+                    if (summary && check_message_exclusion(message)) {
+                        total += count_tokens(summary) + sep_size
+                    }
+                }
+                return total
+            }
+
+            let non_chat_budget = Math.max(total_prompt_tokens - prompt_chat_tokens, 0)
+            let current_chat_size = estimate_chat_size(current_index)
+            if (current_chat_size + non_chat_budget > prompt_token_trigger) {
+                while (current_chat_size + non_chat_budget > prompt_token_trigger && next_index < max_index) {
+                    let step_end = next_index
+                    if (batch_tokens > 0) {
+                        let tokens = 0
+                        while (step_end < max_index && tokens < batch_tokens) {
+                            tokens += estimate_message_prompt_tokens(chat[step_end])
+                            step_end += 1
+                        }
+                    } else {
+                        step_end = Math.min(next_index + batch_messages, max_index)
+                    }
+                    let candidate_chat_size = estimate_chat_size(step_end)
+                    if (candidate_chat_size + non_chat_budget <= prompt_token_trigger) {
+                        if (batch_tokens === 0) {
+                            for (let i = next_index; i < step_end; i++) {
+                                let partial_size = estimate_chat_size(i + 1)
+                                if (partial_size + non_chat_budget <= prompt_token_trigger) {
+                                    next_index = i + 1
+                                    current_chat_size = partial_size
+                                    break
+                                }
+                                next_index = i + 1
+                                current_chat_size = partial_size
+                            }
+                        } else {
+                            current_chat_size = candidate_chat_size
+                            next_index = step_end
+                        }
+                        break
+                    }
+                    current_chat_size = candidate_chat_size
+                    next_index = step_end
+                }
             }
         }
+
+        INJECTION_THRESHOLD_INDEX = Math.max(next_index, current_index)
+        debug("Updated injection threshold index (batch trim): ", INJECTION_THRESHOLD_INDEX)
+        return INJECTION_THRESHOLD_INDEX
     }
 
-    // Check whether the previous prompt has reached the context percent criteria
-    if (!criteria_met && context_trigger > 0) {
-        criteria_met = (100*get_last_prompt_size()/get_context_size()) >= context_trigger
-        if (criteria_met) debug(`Injection update triggered: Previous prompt context > ${context_trigger}%`)
-    }
-
-    if (criteria_met) {
-        INJECTION_THRESHOLD_INDEX = base_index
-        debug("Updated injection threshold index: ", base_index)
-    }
+    INJECTION_THRESHOLD_INDEX = threshold_changed || INJECTION_THRESHOLD_INDEX === null || INJECTION_THRESHOLD_INDEX >= chat.length
+        ? base_index
+        : INJECTION_THRESHOLD_INDEX
     return INJECTION_THRESHOLD_INDEX
 }
 function reset_injection_threshold() {
@@ -3705,6 +3811,9 @@ function update_message_inclusion_flags() {
     let exclude_messages = get_settings('exclude_messages_after_threshold')
     let keep_last_user_message = get_settings('keep_last_user_message')
     let first_to_inject = get_injection_threshold()
+    if (first_to_inject === null || first_to_inject < 0 || first_to_inject > chat.length) {
+        first_to_inject = chat.length
+    }
     debug("FIRST TO INJECT: ", first_to_inject)
 
     let last_user_message_identified = false
@@ -4201,7 +4310,6 @@ function initialize_settings_listeners() {
     bind_setting('#exclude_messages_after_threshold', 'exclude_messages_after_threshold', 'boolean');
     bind_setting('#injection_threshold_update_trigger_messages', 'injection_threshold_update_trigger_messages', 'number');
     bind_setting('#injection_threshold_update_trigger_summaries', 'injection_threshold_update_trigger_summaries', 'number')
-    bind_setting('#injection_threshold_update_trigger_context', 'injection_threshold_update_trigger_context', 'number')
     bind_setting('#keep_last_user_message', 'keep_last_user_message', 'boolean');
 
     bind_setting('input[name="short_term_position"]', 'short_term_position', 'number');
